@@ -72,6 +72,7 @@ PianoRoll::PianoRoll (Context& c)
     scaleBox.onChange = [this] { project.getState().setProperty (id::scaleType, scaleBox.getText(), nullptr); repaint(); };
     addAndMakeVisible (scaleBox);
 
+    keepFocusOnEditors ({ &channelButton, &snapBox, &rootBox, &scaleBox });
     project.getState().addListener (this);
     channelUid = project.selectedChannel();
     refreshToolbar();
@@ -496,7 +497,7 @@ void PianoRoll::paint (juce::Graphics& g)
     {
         juce::Graphics::ScopedSaveState s (g);
         g.reduceClipRegion (gridArea.getUnion (rulerArea));
-        drawPlayhead (g, rulerArea.getUnion (gridArea), ctx.engine.getPositionTicks());
+        drawPlayhead (g, rulerArea.getUnion (gridArea), ctx.engine.getDisplayPositionTicks());
     }
 
     if (! project.findChannel (channelUid).isValid())
@@ -519,14 +520,15 @@ void PianoRoll::animationTick()
         return;
     }
 
-    const double tick = ctx.engine.getPositionTicks();
+    const double tick = ctx.engine.getDisplayPositionTicks();
+    followPlayhead (tick);
     const float x = (float) tickToX (tick);
     if (std::abs (x - lastPlayheadX) >= 0.5f)
     {
         const int top = rulerArea.getY();
         const int h = gridArea.getBottom() - top;
-        repaint (juce::Rectangle<int> ((int) lastPlayheadX - 7, top, 15, h));
-        repaint (juce::Rectangle<int> ((int) x - 7, top, 15, h));
+        repaint (juce::Rectangle<int> ((int) lastPlayheadX - 12, top, 25, h));
+        repaint (juce::Rectangle<int> ((int) x - 12, top, 25, h));
         lastPlayheadX = x;
         updateChordLabel();
     }
@@ -534,7 +536,7 @@ void PianoRoll::animationTick()
 
 void PianoRoll::updateChordLabel()
 {
-    const double tick = ctx.engine.isPlaying() ? ctx.engine.getPositionTicks() : -1.0;
+    const double tick = ctx.engine.isPlaying() ? ctx.engine.getDisplayPositionTicks() : -1.0;
     std::vector<int> keys;
 
     if (tick >= 0.0)
@@ -620,7 +622,7 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     if (rulerArea.contains (p.toInt()))
     {
         drag = Drag::ruler;
-        ctx.engine.setPositionTicks (juce::jmax (0.0, (double) snap (dragStartTick)));
+        ctx.engine.setPositionTicks (juce::jmax (0.0, dragStartTick));
         repaint();
         return;
     }
@@ -747,7 +749,7 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
     switch (drag)
     {
         case Drag::ruler:
-            ctx.engine.setPositionTicks (juce::jmax (0.0, (double) snap (tick)));
+            ctx.engine.setPositionTicks (juce::jmax (0.0, tick));
             repaint();
             break;
 

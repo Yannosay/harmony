@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue';
 import AppIcon from './AppIcon.vue';
-import { downloadUrl, formatSize, release } from '../release.js';
+import { displayVersion, downloadUrl, formatSize, release } from '../release.js';
 
 const frame = ref(null);
 const tilt = { x: 0, y: 0, tx: 0, ty: 0 };
@@ -40,7 +40,7 @@ onUnmounted(() => {
     <div class="grid-bg" aria-hidden="true"></div>
     <div class="container content">
       <img class="app-icon" src="/brand/harmony-icon-512.png" alt="Harmony app icon" width="88" height="88" />
-      <span class="eyebrow">Yannosay Harmony {{ release.version }}</span>
+      <span class="eyebrow">Yannosay Harmony {{ displayVersion(release.version) }}</span>
       <h1>Make music at the <span class="gradient">speed of thought.</span></h1>
       <p class="lead">
         A fast, dark digital audio workstation that hosts your VST3, VST and LV2 plugins, SoundFonts and samples.

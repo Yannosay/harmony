@@ -76,7 +76,27 @@ AudioEngine::~AudioEngine()
 
 juce::String AudioEngine::openDevice (const juce::XmlElement* savedState)
 {
-    auto error = deviceManager.initialise (2, 2, savedState, true);
+    auto error = deviceManager.initialise (0, 2, savedState, true);
+
+    if (deviceManager.getCurrentAudioDevice() == nullptr)
+        error = deviceManager.initialiseWithDefaultDevices (0, 2);
+
+    if (deviceManager.getCurrentAudioDevice() == nullptr)
+    {
+        for (auto* type : deviceManager.getAvailableDeviceTypes())
+        {
+            deviceManager.setCurrentAudioDeviceType (type->getTypeName(), true);
+            juce::AudioDeviceManager::AudioDeviceSetup setup;
+            setup.outputDeviceName = type->getDeviceNames (false)[type->getDefaultDeviceIndex (false)];
+            setup.useDefaultOutputChannels = true;
+            setup.inputChannels.clear();
+            setup.useDefaultInputChannels = false;
+            error = deviceManager.setAudioDeviceSetup (setup, true);
+            if (deviceManager.getCurrentAudioDevice() != nullptr)
+                break;
+        }
+    }
+
     deviceManager.addAudioCallback (this);
     enableMidiInputs();
     return error;
@@ -141,6 +161,16 @@ void AudioEngine::setPositionTicks (double ticks)
 
     if (! playing.load())
         playStartTick = ticks;
+}
+
+double AudioEngine::getDisplayPositionTicks() const noexcept
+{
+    const double pos = position.load();
+    if (! playing.load() || offline.load() || seekPending.load())
+        return pos;
+
+    const double elapsed = juce::jlimit (0.0, maxExtrapolationMs.load(), juce::Time::getMillisecondCounterHiRes() - positionStampMs.load());
+    return pos + elapsed * ticksPerMs.load();
 }
 
 void AudioEngine::setSongMode (bool shouldUseSong)
@@ -680,7 +710,15 @@ void AudioEngine::processChunk (const Snapshot& snap, juce::AudioBuffer<float>& 
         }
 
         if (! seekPending.load())
+        {
             position.store (pos);
+            if (realtime)
+            {
+                ticksPerMs.store (ticksPerSample * sampleRate / 1000.0);
+                maxExtrapolationMs.store (2000.0 * blockSize / sampleRate);
+                positionStampMs.store (juce::Time::getMillisecondCounterHiRes());
+            }
+        }
     }
 
     mixDown (snap, numSamples);

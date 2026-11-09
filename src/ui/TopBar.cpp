@@ -47,6 +47,7 @@ TopBar::TopBar (Context& c, juce::MenuBarModel& model)
     addAndMakeVisible (bpmBox);
 
     addAndMakeVisible (masterMeter);
+    keepFocusOnEditors ({ &patternModeButton, &songModeButton, &menuBar });
 
     ctx.project.getState().addListener (this);
     refreshTransport();
@@ -86,7 +87,7 @@ void TopBar::valueTreePropertyChanged (juce::ValueTree& t, const juce::Identifie
 
 juce::String TopBar::positionText() const
 {
-    const double tick = ctx.engine.getPositionTicks();
+    const double tick = ctx.engine.getDisplayPositionTicks();
 
     if (showSeconds)
     {

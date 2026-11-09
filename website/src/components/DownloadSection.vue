@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 import AppIcon from './AppIcon.vue';
-import { downloadUrl, formatSize, release, repoPublic, repoUrl } from '../release.js';
+import { displayVersion, downloadUrl, formatSize, release, repoPublic, repoUrl } from '../release.js';
 
 const copied = ref(false);
 
@@ -23,7 +23,7 @@ async function copyHash() {
         <div class="aura" aria-hidden="true"></div>
         <img class="icon" src="/brand/harmony-icon-512.png" alt="" width="120" height="120" loading="lazy" />
         <span class="eyebrow">Download</span>
-        <h2 class="section-title">Get Harmony {{ release.version }}</h2>
+        <h2 class="section-title">Get Harmony {{ displayVersion(release.version) }}</h2>
         <p class="section-lead">
           Free for Windows 10 and 11 (64-bit). Installs for your user without admin rights and keeps itself up to date:
           new versions download in the background, are verified, and install when you close Harmony.
@@ -39,7 +39,7 @@ async function copyHash() {
           </a>
         </div>
         <dl class="facts">
-          <div><dt>Version</dt><dd>{{ release.version }}</dd></div>
+          <div><dt>Version</dt><dd>{{ displayVersion(release.version) }}</dd></div>
           <div v-if="release.size"><dt>Size</dt><dd>{{ formatSize(release.size) }}</dd></div>
           <div><dt>Formats</dt><dd>VST3 · VST · LV2 · SF2</dd></div>
           <div v-if="release.sha256" class="hash">

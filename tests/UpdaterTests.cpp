@@ -37,7 +37,14 @@ public:
             expect (Version::parse ("v1.2.3").has_value());
             expect (*Version::parse ("1.9.9") < *Version::parse ("1.10.0"));
             expect (*Version::parse ("2.0") == Version { 2, 0, 0 });
-            expect (*Version::parse ("1.2.3-beta.1") == Version { 1, 2, 3 });
+            expect (*Version::parse ("1.2.3-beta.1") == Version { 1, 2, 3, "beta.1" });
+            expect (*Version::parse ("0.0.1-alpha") < *Version::parse ("0.0.1"));
+            expect (*Version::parse ("0.0.1-alpha") < *Version::parse ("0.0.1-beta"));
+            expect (*Version::parse ("0.0.1-alpha.2") < *Version::parse ("0.0.1-alpha.10"));
+            expect (*Version::parse ("0.0.1") < *Version::parse ("0.0.2-alpha"));
+            expect (Version::parse ("0.0.1-alpha")->display() == "Alpha 0.0.1");
+            expect (Version::parse ("2.1.0")->display() == "2.1.0");
+            expect (! Version::parse ("1.0.0-al pha").has_value());
             expect (! Version::parse ("").has_value());
             expect (! Version::parse ("one.two").has_value());
             expect (! Version::parse ("1.2.3.4").has_value());

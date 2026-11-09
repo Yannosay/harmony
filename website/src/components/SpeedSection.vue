@@ -5,7 +5,7 @@ const shortcuts = [
   { keys: ['Ctrl', 'K'], label: 'Command palette' },
   { keys: ['F6', 'F7', 'F9'], label: 'Rack, piano roll, mixer' },
   { keys: ['Ctrl', 'G'], label: 'Chord generator' },
-  { keys: ['Ctrl', 'D'], label: 'Duplicate selection' },
+  { keys: ['Ctrl', 'B'], label: 'Duplicate selection' },
   { keys: ['P', 'E', 'C', 'T'], label: 'Draw, select, slice, mute' },
   { keys: ['Ctrl', 'R'], label: 'Render to audio' }
 ];

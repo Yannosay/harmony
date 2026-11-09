@@ -1,8 +1,15 @@
 import { reactive } from 'vue';
 
+export function displayVersion(version) {
+  const [numbers, pre] = version.split('-');
+  if (!pre) return numbers;
+  const [stage, ...rest] = pre.split('.');
+  return `${stage[0].toUpperCase()}${stage.slice(1)} ${numbers}${rest.length ? '.' + rest.join('.') : ''}`;
+}
+
 export const release = reactive({
-  version: '1.0.0',
-  file: 'YannosayHarmony-1.0.0-Setup-x64.exe',
+  version: __HARMONY_VERSION__,
+  file: `YannosayHarmony-${__HARMONY_VERSION__}-Setup-x64.exe`,
   size: 0,
   sha256: '',
   loaded: false

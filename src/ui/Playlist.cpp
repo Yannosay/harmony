@@ -54,6 +54,7 @@ Playlist::Playlist (Context& c)
     };
     addAndMakeVisible (patternButton);
 
+    keepFocusOnEditors ({ &snapBox, &patternButton });
     project.getState().addListener (this);
     refreshToolbar();
 }
@@ -452,7 +453,7 @@ void Playlist::paint (juce::Graphics& g)
     {
         juce::Graphics::ScopedSaveState s (g);
         g.reduceClipRegion (gridArea.getUnion (rulerArea));
-        drawPlayhead (g, rulerArea.getUnion (gridArea), ctx.engine.getPositionTicks());
+        drawPlayhead (g, rulerArea.getUnion (gridArea), ctx.engine.getDisplayPositionTicks());
     }
 }
 
@@ -468,7 +469,7 @@ void Playlist::animationTick()
         return;
     }
 
-    const double tick = ctx.engine.getPositionTicks();
+    const double tick = ctx.engine.getDisplayPositionTicks();
     const float x = (float) tickToX (tick);
 
     if (ctx.engine.isPlaying() && follow)
@@ -478,8 +479,8 @@ void Playlist::animationTick()
     {
         const int top = rulerArea.getY();
         const int h = gridArea.getBottom() - top;
-        repaint (juce::Rectangle<int> ((int) lastPlayheadX - 7, top, 15, h));
-        repaint (juce::Rectangle<int> ((int) x - 7, top, 15, h));
+        repaint (juce::Rectangle<int> ((int) lastPlayheadX - 12, top, 25, h));
+        repaint (juce::Rectangle<int> ((int) x - 12, top, 25, h));
         lastPlayheadX = x;
     }
 }
@@ -530,7 +531,7 @@ void Playlist::mouseDown (const juce::MouseEvent& e)
         {
             drag = Drag::ruler;
             ctx.engine.setSongMode (true);
-            ctx.engine.setPositionTicks ((double) snap (dragStartTick));
+            ctx.engine.setPositionTicks (juce::jmax (0.0, dragStartTick));
         }
         return;
     }
@@ -658,7 +659,7 @@ void Playlist::mouseDrag (const juce::MouseEvent& e)
     switch (drag)
     {
         case Drag::ruler:
-            ctx.engine.setPositionTicks ((double) snap (juce::jmax (0.0, tick)));
+            ctx.engine.setPositionTicks (juce::jmax (0.0, tick));
             repaint();
             break;
 
@@ -912,7 +913,7 @@ void Playlist::editPaste()
     for (auto& c : clipboard)
         first = juce::jmin (first, (juce::int64) c[id::start]);
 
-    const auto at = snap (ctx.engine.isSongMode() ? ctx.engine.getPositionTicks() : viewTick.current, true);
+    const auto at = snap (ctx.engine.isSongMode() ? ctx.engine.getDisplayPositionTicks() : viewTick.current, true);
     project.beginTransaction ("Paste clips");
     selection.clear();
 

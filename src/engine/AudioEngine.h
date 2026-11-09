@@ -38,6 +38,7 @@ public:
     bool isPlaying() const noexcept { return playing.load(); }
     void setPositionTicks (double ticks);
     double getPositionTicks() const noexcept { return position.load(); }
+    double getDisplayPositionTicks() const noexcept;
     void setSongMode (bool shouldUseSong);
     bool isSongMode() const noexcept { return songMode.load(); }
     void setRecording (bool shouldRecord) noexcept { recording = shouldRecord; }
@@ -143,6 +144,7 @@ private:
     std::atomic<bool> playing { false }, songMode { false }, recording { false }, metronome { false };
     std::atomic<bool> stopPending { false }, seekPending { false }, panicPending { false }, offline { false };
     std::atomic<double> position { 0.0 }, seekTarget { 0.0 };
+    std::atomic<double> positionStampMs { 0.0 }, ticksPerMs { 0.0 }, maxExtrapolationMs { 0.0 };
     std::atomic<int> currentPattern { 0 }, liveChannel { 0 };
     double playStartTick = 0.0;
     bool offlineSongMode = true;

@@ -25,6 +25,7 @@ public:
             b->setColour (juce::TextButton::buttonOnColourId, colours::accent);
             addAndMakeVisible (b);
         }
+        keepFocusOnEditors ({ &rackButton, &pianoButton, &mixerButton });
         rackButton.setTooltip ("Channel Rack (F6)");
         pianoButton.setTooltip ("Piano Roll (F7)");
         mixerButton.setTooltip ("Mixer (F9)");
@@ -364,7 +365,7 @@ void MainComponent::timerCallback()
     if (ctx.sync.isLoading())
         info = "Loading instruments...   " + info;
 
-    info << "   v" HARMONY_VERSION_STRING;
+    info << "   " << update::currentVersion().display();
     statusBar->setInfo (info);
     updateTitle();
 }
@@ -494,7 +495,7 @@ void MainComponent::getCommandInfo (juce::CommandID command, juce::ApplicationCo
         case saveProjectAs:   set ("Save as...", "File", "Save the project under a new name"); info.addDefaultKeypress ('s', ctrl | shift); break;
         case exportAudio:     set ("Render / export audio...", "File", "Render to WAV, FLAC, OGG or AIFF, with optional stems"); info.addDefaultKeypress ('r', ctrl); break;
         case projectHistory:  set ("Time machine...", "File", "Browse and restore automatic project snapshots"); info.addDefaultKeypress ('h', ctrl); break;
-        case quit:            set ("Quit", "File", "Quit Harmony"); info.addDefaultKeypress ('q', ctrl); break;
+        case quit:            set ("Quit", "File", "Quit Harmony"); info.addDefaultKeypress (juce::KeyPress::F4Key, alt); break;
 
         case undo:            set ("Undo", "Edit", "Undo the last change"); info.addDefaultKeypress ('z', ctrl); info.setActive (ctx.project.getUndo().canUndo()); break;
         case redo:            set ("Redo", "Edit", "Redo"); info.addDefaultKeypress ('y', ctrl); info.addDefaultKeypress ('z', ctrl | shift); info.setActive (ctx.project.getUndo().canRedo()); break;
@@ -503,8 +504,8 @@ void MainComponent::getCommandInfo (juce::CommandID command, juce::ApplicationCo
         case paste:           set ("Paste", "Edit", "Paste at the mouse or playhead"); info.addDefaultKeypress ('v', ctrl); break;
         case deleteSelection: set ("Delete", "Edit", "Delete the selection"); info.addDefaultKeypress (K::deleteKey, 0); info.addDefaultKeypress (K::backspaceKey, 0); break;
         case selectAll:       set ("Select all", "Edit", "Select everything in the active editor"); info.addDefaultKeypress ('a', ctrl); break;
-        case duplicate:       set ("Duplicate", "Edit", "Duplicate the selection after itself"); info.addDefaultKeypress ('d', ctrl); break;
-        case quantize:        set ("Quantize", "Edit", "Snap note starts to the grid"); info.addDefaultKeypress ('q', ctrl | shift); break;
+        case duplicate:       set ("Duplicate", "Edit", "Duplicate the selection after itself"); info.addDefaultKeypress ('b', ctrl); info.addDefaultKeypress ('d', ctrl); break;
+        case quantize:        set ("Quantize", "Edit", "Snap note starts to the grid"); info.addDefaultKeypress ('q', ctrl); break;
         case humanize:        set ("Humanize", "Edit", "Add subtle timing and velocity variation"); info.addDefaultKeypress ('h', alt); break;
         case toggleMuteSelection: set ("Mute selection", "Edit", "Mute or unmute selected notes or clips"); info.addDefaultKeypress ('m', shift); break;
 
@@ -643,7 +644,7 @@ bool MainComponent::perform (const InvocationInfo& info)
             ctx.updater.onStateChanged = [this, previous = ctx.updater.onStateChanged]
             {
                 if (ctx.updater.getState() == update::Updater::State::upToDate)
-                    showToast ("You are on the latest version (" HARMONY_VERSION_STRING ")");
+                    showToast ("You are on the latest version (" + update::currentVersion().display() + ")");
                 if (previous)
                     previous();
             };

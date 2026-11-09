@@ -19,7 +19,9 @@ jobs:
         run: |
           $version = (Get-Content VERSION -TotalCount 1).Trim()
           if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match VERSION $version" }
+          $number = ($version -split '-')[0]
           "HARMONY_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "HARMONY_VERSION_NUMBER=$number" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -42,7 +44,7 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:HARMONY_VERSION" installer\harmony.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:HARMONY_VERSION" "/DAppVersionNumber=$env:HARMONY_VERSION_NUMBER" installer\harmony.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
       - name: Checksums

@@ -4,6 +4,7 @@
 #include "model/DrumGenerator.h"
 #include "model/MusicTheory.h"
 #include "engine/AudioEngine.h"
+#include "update/Version.h"
 #include <set>
 
 namespace harmony::ui
@@ -723,7 +724,7 @@ namespace
             g.drawText ("Yannosay Harmony", r.removeFromTop (40), juce::Justification::centred, false);
             g.setColour (colours::accent);
             g.setFont (font (11.5f, Weight::medium));
-            g.drawText ("Version " HARMONY_VERSION_STRING, r.removeFromTop (22), juce::Justification::centred, false);
+            g.drawText (update::currentVersion().display(), r.removeFromTop (22), juce::Justification::centred, false);
             g.setColour (colours::textDim);
             g.setFont (font (10.5f));
             g.drawText (juce::String::fromUTF8 ("\xc2\xa9 Yannosay Productions"), r.removeFromTop (22), juce::Justification::centred, false);

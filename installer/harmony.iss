@@ -1,5 +1,8 @@
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #error Pass the version from the VERSION file: ISCC /DAppVersion=<VERSION> /DAppVersionNumber=<MAJOR.MINOR.PATCH>
+#endif
+#ifndef AppVersionNumber
+  #error Pass the numeric part of VERSION: ISCC /DAppVersionNumber=<MAJOR.MINOR.PATCH>
 #endif
 #ifndef SourceDir
   #define SourceDir "..\build\Harmony_artefacts\Release"
@@ -42,7 +45,7 @@ CloseApplications=force
 RestartApplications=no
 ChangesAssociations=yes
 LicenseFile=..\LICENSE
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#AppVersionNumber}
 VersionInfoCompany=Yannosay Productions
 VersionInfoDescription={#AppName} Setup
 VersionInfoProductName={#AppName}

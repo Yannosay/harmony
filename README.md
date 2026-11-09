@@ -47,7 +47,7 @@ effects**: it is a host. Bring your own VST, VST3, LV2 plugins, SoundFonts and s
 | Render | `Ctrl+R` |
 | Chord generator, drum generator | `Ctrl+G`, `Ctrl+Shift+G` |
 | Draw, select, slice, mute tools | `P`, `E`, `C`, `T` |
-| Duplicate, quantize, humanize | `Ctrl+D`, `Ctrl+Shift+Q`, `Alt+H` |
+| Duplicate, quantize, humanize | `Ctrl+B` or `Ctrl+D`, `Ctrl+Q`, `Alt+H` |
 | Zoom, scroll, vertical zoom | `Ctrl+wheel`, `wheel` / `Shift+wheel`, `Alt+wheel` |
 | Time machine | `Ctrl+H` |
 
@@ -70,17 +70,18 @@ cmake --build build
 build/HarmonyTests_artefacts/Release/HarmonyTests
 ```
 
-The installer is built with Inno Setup 6: `iscc /DAppVersion=1.0.0 installer/harmony.iss`.
+The installer is built with Inno Setup 6. Its version always comes from the `VERSION` file:
+`iscc /DAppVersion=<VERSION> /DAppVersionNumber=<MAJOR.MINOR.PATCH> installer/harmony.iss`.
 
 ## Releasing
 
-1. Bump `VERSION`, commit, and push a matching tag (`v1.0.1`). The release workflow builds,
+1. Bump `VERSION` (the only place a version is written), commit, and push the matching tag (`v` + `VERSION`). The release workflow builds,
    tests and packages `YannosayHarmony-<version>-Setup-x64.exe` plus `SHA256SUMS.txt`.
 2. Publish it on the website, which is also the primary update feed:
 
    ```
    cd website
-   node scripts/sync-release.mjs path/to/YannosayHarmony-1.0.1-Setup-x64.exe
+   node scripts/sync-release.mjs path/to/YannosayHarmony-<VERSION>-Setup-x64.exe
    npm run deploy
    ```
 

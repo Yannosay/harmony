@@ -160,4 +160,5 @@ private:
 };
 
 juce::String formatDecibels (float fader);
+void keepFocusOnEditors (std::initializer_list<juce::Component*> components);
 }

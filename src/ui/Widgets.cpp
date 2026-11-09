@@ -11,9 +11,19 @@ juce::String formatDecibels (float fader)
     return (db > 0.0f ? "+" : "") + juce::String (db, 1) + " dB";
 }
 
+void keepFocusOnEditors (std::initializer_list<juce::Component*> components)
+{
+    for (auto* c : components)
+    {
+        c->setWantsKeyboardFocus (false);
+        c->setMouseClickGrabsKeyboardFocus (false);
+    }
+}
+
 IconButton::IconButton (const juce::String& name, juce::Path i, bool f)
     : juce::Button (name), icon (std::move (i)), filled (f)
 {
+    keepFocusOnEditors ({ this });
     setTooltip (name);
     setMouseCursor (juce::MouseCursor::PointingHandCursor);
 }
@@ -108,6 +118,7 @@ Knob::Knob (double minimum, double maximum, double def, const juce::String& tip)
     setPopupDisplayEnabled (true, true, nullptr, 900);
     setTooltip (tip);
     setName (tip);
+    keepFocusOnEditors ({ this });
 }
 
 void Knob::bind (juce::ValueTree tree, const juce::Identifier& property, juce::UndoManager* undo)
@@ -151,6 +162,7 @@ Fader::Fader()
     setSkewFactor (1.0);
     setPopupDisplayEnabled (true, true, nullptr, 900);
     setName ("Volume");
+    keepFocusOnEditors ({ this });
 }
 
 void Fader::bind (juce::ValueTree tree, const juce::Identifier& property, juce::UndoManager* undo)
@@ -213,6 +225,7 @@ void Fader::paint (juce::Graphics& g)
 NumberBox::NumberBox (double mn, double mx, double st, int d)
     : minimum (mn), maximum (mx), step (st), decimals (d)
 {
+    keepFocusOnEditors ({ this });
     setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
 }
 

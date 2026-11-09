@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" HARMONY_VERSION LIMIT_COUNT 1)
-project(YannosayHarmony VERSION ${HARMONY_VERSION} LANGUAGES C CXX)
+string(STRIP "${HARMONY_VERSION}" HARMONY_VERSION)
+string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" HARMONY_VERSION_NUMBER "${HARMONY_VERSION}")
+if(NOT HARMONY_VERSION_NUMBER)
+    message(FATAL_ERROR "VERSION must start with MAJOR.MINOR.PATCH, got '${HARMONY_VERSION}'")
+endif()
+project(YannosayHarmony VERSION ${HARMONY_VERSION_NUMBER} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -112,7 +117,7 @@ set(HARMONY_DEFINITIONS
     JUCE_STRICT_REFCOUNTEDPOINTER=1
     JUCE_MODAL_LOOPS_PERMITTED=0
     JUCE_STANDALONE_APPLICATION=1
-    HARMONY_VERSION_STRING="${PROJECT_VERSION}")
+    HARMONY_VERSION_STRING="${HARMONY_VERSION}")
 
 set(HARMONY_JUCE_MODULES
     juce::juce_audio_utils
@@ -127,6 +132,7 @@ set(HARMONY_JUCE_MODULES
 add_library(HarmonyCore STATIC ${HARMONY_CORE_SOURCES} src/engine/TinySoundFont.cpp)
 target_include_directories(HarmonyCore PUBLIC src third_party third_party/fst)
 target_compile_definitions(HarmonyCore PUBLIC ${HARMONY_DEFINITIONS})
+target_compile_options(HarmonyCore PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/wd4200>)
 target_link_libraries(HarmonyCore
     PRIVATE ${HARMONY_JUCE_MODULES}
     PUBLIC juce::juce_recommended_config_flags
@@ -159,7 +165,8 @@ if(HARMONY_BUILD_TESTS)
         tests/TheoryTests.cpp
         tests/EngineTests.cpp
         tests/UpdaterTests.cpp
-        tests/PluginHostTests.cpp)
+        tests/PluginHostTests.cpp
+        tests/DeviceTests.cpp)
     target_link_libraries(HarmonyTests PRIVATE HarmonyCore)
     enable_testing()
     add_test(NAME HarmonyTests COMMAND HarmonyTests)

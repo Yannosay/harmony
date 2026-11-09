@@ -108,7 +108,7 @@ private:
     IconButton muteButton { "Mute (T)", icons::mute() };
     IconButton ghostButton { "Ghost notes", icons::ghost() };
     IconButton scaleLockButton { "Scale lock: new and moved notes stay in key", icons::scale() };
-    IconButton quantizeButton { "Quantize (Ctrl+Shift+Q)", icons::magnet() };
+    IconButton quantizeButton { "Quantize (Ctrl+Q)", icons::magnet() };
     IconButton humanizeButton { "Humanize (Alt+H)", icons::wave() };
     IconButton chordButton { "Chord generator (Ctrl+G)", icons::wand() };
     juce::TextButton channelButton;

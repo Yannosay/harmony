@@ -469,6 +469,7 @@ ChannelRack::ChannelRack (Context& c)
 
     addAndMakeVisible (patternButton);
     patternButton.setTooltip ("Current pattern");
+    keepFocusOnEditors ({ &patternButton });
     patternButton.onClick = [this] { showPatternMenu(); };
 
     addAndMakeVisible (newPatternButton);
@@ -578,7 +579,7 @@ void ChannelRack::resized()
 void ChannelRack::timerCallback()
 {
     const bool patternPlaying = ctx.engine.isPlaying() && ! ctx.engine.isSongMode();
-    const int step = patternPlaying ? (int) (ctx.engine.getPositionTicks() / ticksPerStep) : -1;
+    const int step = patternPlaying ? (int) (ctx.engine.getDisplayPositionTicks() / ticksPerStep) : -1;
 
     for (auto& row : rows)
     {

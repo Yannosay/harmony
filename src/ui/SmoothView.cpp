@@ -120,9 +120,21 @@ void TimelineCanvas::zoomVertically (double factor, double anchorY)
 void TimelineCanvas::followPlayhead (double tick)
 {
     const auto grid = getGridArea();
-    const double x = tickToX (tick);
-    if (x > grid.getRight() - grid.getWidth() * 0.08 || x < grid.getX())
-        scrollToTick (tick - (grid.getWidth() * 0.1) / pxPerTick.target);
+    const double visibleTicks = grid.getWidth() / pxPerTick.target;
+    const double relative = (tick - viewTick.target) / visibleTicks;
+
+    if (relative < 0.0 || relative > 1.0)
+    {
+        scrollToTick (tick - visibleTicks * 0.15);
+    }
+    else if (relative > 0.5 && std::abs (viewTick.current - viewTick.target) < visibleTicks * 0.01)
+    {
+        viewTick.target = tick - visibleTicks * 0.5;
+        clampTargets();
+        viewTick.current = viewTick.target;
+        viewChanged();
+        repaint();
+    }
 }
 
 void TimelineCanvas::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)

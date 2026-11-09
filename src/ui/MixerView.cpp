@@ -34,6 +34,7 @@ public:
         soloButton.setColour (juce::TextButton::buttonOnColourId, colours::warning);
         muteButton.onClick = [this] { toggle (id::mute); };
         soloButton.onClick = [this] { toggle (id::solo); };
+        keepFocusOnEditors ({ &muteButton, &soloButton });
         muteButton.setTooltip ("Mute");
         soloButton.setTooltip ("Solo");
         if (index == 0)
