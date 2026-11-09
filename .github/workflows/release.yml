@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build and publish Windows installer
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches VERSION
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -TotalCount 1).Trim()
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match VERSION $version" }
+          "HARMONY_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: build/HarmonyTests_artefacts/Release/HarmonyTests.exe Harmony
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:HARMONY_VERSION" installer\harmony.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Filter *.exe | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content -Encoding ascii dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Harmony ${{ env.HARMONY_VERSION }}
+          generate_release_notes: true
+          files: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
