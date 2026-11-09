@@ -66,6 +66,9 @@ AudioEngine::~AudioEngine()
     previewSource.reset();
     previewThread.stopThread (2000);
     live.store (nullptr);
+    for (auto& destroy : retireAfterPublish)
+        destroy();
+    retireAfterPublish.clear();
     collectGarbage (true);
     channelNodes.clear();
     slotNodes.clear();
@@ -200,6 +203,10 @@ void AudioEngine::publish (std::unique_ptr<Snapshot> snapshot)
         auto shared = std::shared_ptr<Snapshot> (old.release());
         retire ([shared]() mutable { shared.reset(); });
     }
+
+    for (auto& destroy : retireAfterPublish)
+        retire (std::move (destroy));
+    retireAfterPublish.clear();
 }
 
 void AudioEngine::addChannelNode (std::unique_ptr<ChannelNode> node)
@@ -212,7 +219,7 @@ void AudioEngine::addChannelNode (std::unique_ptr<ChannelNode> node)
     if (auto existing = channelNodes.find (uid); existing != channelNodes.end())
     {
         auto shared = std::shared_ptr<ChannelNode> (existing->second.release());
-        retire ([shared]() mutable { shared.reset(); });
+        retireAfterPublish.push_back ([shared]() mutable { shared.reset(); });
     }
 
     channelNodes[uid] = std::move (node);
@@ -252,7 +259,7 @@ void AudioEngine::addSlotNode (std::unique_ptr<FxSlotNode> node)
     if (auto existing = slotNodes.find (uid); existing != slotNodes.end())
     {
         auto shared = std::shared_ptr<FxSlotNode> (existing->second.release());
-        retire ([shared]() mutable { shared.reset(); });
+        retireAfterPublish.push_back ([shared]() mutable { shared.reset(); });
     }
 
     slotNodes[uid] = std::move (node);

@@ -50,6 +50,7 @@ private:
     std::optional<ReleaseInfo> fetchLatest() const;
 
     juce::File directory;
+    std::shared_ptr<bool> alive = std::make_shared<bool> (true);
     std::atomic<State> state { State::idle };
     std::atomic<float> downloadProgress { 0.0f };
     std::atomic<bool> autoDownload { true };

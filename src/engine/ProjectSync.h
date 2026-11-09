@@ -17,6 +17,7 @@ public:
     void syncNow();
     void captureStates();
     bool isLoading() const noexcept { return ! loading.empty(); }
+    void clearFailures() { failed.clear(); }
 
     juce::AudioPluginInstance* pluginForChannel (int uid) const;
     juce::AudioPluginInstance* pluginForSlot (int uid) const;

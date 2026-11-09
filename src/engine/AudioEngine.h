@@ -138,6 +138,7 @@ private:
     std::atomic<const Snapshot*> live { nullptr };
     ReaderGuard realtimeGuard, offlineGuard;
     std::vector<Retired> graveyard;
+    std::vector<std::function<void()>> retireAfterPublish;
 
     std::atomic<bool> playing { false }, songMode { false }, recording { false }, metronome { false };
     std::atomic<bool> stopPending { false }, seekPending { false }, panicPending { false }, offline { false };

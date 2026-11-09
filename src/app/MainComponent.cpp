@@ -197,6 +197,7 @@ MainComponent::MainComponent (Context& c)
 
     ctx.project.onStateReplaced = [this]
     {
+        ctx.sync.clearFailures();
         windows.closeAll();
         ctx.engine.stop();
         updateTitle();

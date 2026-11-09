@@ -154,7 +154,11 @@ juce::String Updater::getError() const
 void Updater::setState (State newState)
 {
     state = newState;
-    juce::MessageManager::callAsync ([this] { if (onStateChanged) onStateChanged(); });
+    juce::MessageManager::callAsync ([this, weak = std::weak_ptr<bool> (alive)]
+    {
+        if (! weak.expired() && onStateChanged)
+            onStateChanged();
+    });
 }
 
 void Updater::run()

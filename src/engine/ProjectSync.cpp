@@ -12,7 +12,6 @@ ProjectSync::ProjectSync (Project& p, AudioEngine& e, PluginManager& pm)
 
 ProjectSync::~ProjectSync()
 {
-    *alive = false;
     project.getState().removeListener (this);
     loaderPool.removeAllJobs (true, 10000);
 }
