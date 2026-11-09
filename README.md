@@ -74,9 +74,19 @@ The installer is built with Inno Setup 6: `iscc /DAppVersion=1.0.0 installer/har
 
 ## Releasing
 
-Bump `VERSION`, commit, then push a matching tag (`v1.0.1`). The release workflow builds,
-tests, packages the installer, publishes `SHA256SUMS.txt`, and every installed copy of
-Harmony picks the update up automatically.
+1. Bump `VERSION`, commit, and push a matching tag (`v1.0.1`). The release workflow builds,
+   tests and packages `YannosayHarmony-<version>-Setup-x64.exe` plus `SHA256SUMS.txt`.
+2. Publish it on the website, which is also the primary update feed:
+
+   ```
+   cd website
+   node scripts/sync-release.mjs path/to/YannosayHarmony-1.0.1-Setup-x64.exe
+   npm run deploy
+   ```
+
+`sync-release.mjs` writes `public/latest.json` (version, download URL, SHA-256). Every installed
+copy of Harmony checks that manifest (falling back to GitHub Releases), downloads the new
+installer in the background, verifies its SHA-256 and installs it silently when Harmony closes.
 
 ## License
 
