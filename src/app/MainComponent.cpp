@@ -1095,6 +1095,10 @@ void MainComponent::buildDemoContent()
 void MainComponent::saveScreenshots (const juce::File& directory)
 {
     directory.createDirectory();
+    stopTimer();
+    ctx.plugins.getKnownPlugins().clear();
+    browser.refresh();
+    statusBar->setInfo ("48.0 kHz   512 smp   " + update::currentVersion().display());
     setSize (1720, 1040);
     resized();
 
