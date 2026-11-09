@@ -1118,15 +1118,25 @@ void MainComponent::saveScreenshots (const juce::File& directory)
     showDock (Dock::mixer);
     capture ("harmony-mixer");
 
+    auto settleOverlays = [this]
+    {
+        for (int i = 0; i < getNumChildComponents(); ++i)
+            if (auto* overlay = dynamic_cast<Overlay*> (getChildComponent (i)))
+            {
+                juce::Desktop::getInstance().getAnimator().cancelAnimation (overlay, false);
+                overlay->setAlpha (1.0f);
+            }
+    };
+
+    showDock (Dock::pianoRoll);
+    pianoRoll.showChordGenerator();
+    settleOverlays();
+    capture ("harmony-chords");
+    Overlay::closeAll (*this);
+
     showDock (Dock::rack);
-    auto palette = std::make_unique<CommandPalette> (ctx.commands);
-    showPanel (std::move (palette), "Command Palette");
-    for (int i = 0; i < getNumChildComponents(); ++i)
-        if (auto* overlay = dynamic_cast<Overlay*> (getChildComponent (i)))
-        {
-            juce::Desktop::getInstance().getAnimator().cancelAnimation (overlay, false);
-            overlay->setAlpha (1.0f);
-        }
+    showPanel (std::make_unique<CommandPalette> (ctx.commands), "Command Palette");
+    settleOverlays();
     capture ("harmony-palette");
     Overlay::closeAll (*this);
 }

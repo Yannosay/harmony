@@ -6,6 +6,7 @@
 namespace harmony::update
 {
 inline constexpr const char* repository = "Yannosay/harmony";
+inline constexpr const char* manifestUrl = "https://harmony.yannosay.com/latest.json";
 
 struct ReleaseInfo
 {
@@ -15,10 +16,12 @@ struct ReleaseInfo
     juce::String installerName;
     juce::URL installerUrl;
     juce::URL checksumsUrl;
+    juce::String sha256;
 };
 
 juce::String platformInstallerSuffix();
 std::optional<ReleaseInfo> parseRelease (const juce::var& json, const juce::String& installerSuffix);
+std::optional<ReleaseInfo> parseManifest (const juce::var& json, const juce::String& installerSuffix);
 juce::String findChecksum (const juce::String& checksumsText, const juce::String& fileName);
 bool verifySha256 (const juce::File& file, const juce::String& expectedHex);
 
@@ -44,6 +47,7 @@ private:
     void run() override;
     void setState (State newState);
     juce::Result download (const ReleaseInfo& release);
+    std::optional<ReleaseInfo> fetchLatest() const;
 
     juce::File directory;
     std::atomic<State> state { State::idle };

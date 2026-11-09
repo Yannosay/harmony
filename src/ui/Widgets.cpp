@@ -373,9 +373,10 @@ void LevelMeter::paint (juce::Graphics& g)
 }
 
 Overlay::Overlay (std::unique_ptr<juce::Component> c, const juce::String& t)
-    : content (std::move (c)), title (t)
+    : content (std::move (c)), title (t), preferredSize (content->getWidth(), content->getHeight())
 {
     setWantsKeyboardFocus (true);
+    content->setBounds ({});
     addAndMakeVisible (*content);
     addAndMakeVisible (closeButton);
     closeButton.onClick = [this] { dismiss(); };
@@ -420,8 +421,8 @@ void Overlay::dismiss()
 void Overlay::resized()
 {
     const int headerHeight = 48;
-    const int w = juce::jmin (getWidth() - 40, content->getWidth());
-    const int h = juce::jmin (getHeight() - 40, content->getHeight() + headerHeight);
+    const int w = juce::jmin (getWidth() - 40, preferredSize.x);
+    const int h = juce::jmin (getHeight() - 40, preferredSize.y + headerHeight);
     card = getLocalBounds().withSizeKeepingCentre (w, h);
 
     auto inner = card;

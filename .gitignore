@@ -16,3 +16,6 @@ CMakeUserPresets.json
 /to-do_workflow.txt
 /Design_Philosophy_*.txt
 /logo_yp.png
+/.claude/
+/website/public/download/
+/website/public/latest.json

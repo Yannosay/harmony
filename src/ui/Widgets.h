@@ -135,6 +135,7 @@ private:
 
     std::unique_ptr<juce::Component> content;
     juce::String title;
+    juce::Point<int> preferredSize;
     IconButton closeButton { "Close", icons::close() };
     juce::Rectangle<int> card;
 };

@@ -16,11 +16,11 @@ public:
         obj->setProperty ("body", "Notes");
 
         juce::Array<juce::var> assets;
-        auto asset = [] (const juce::String& name)
+        auto asset = [] (const juce::String& assetName)
         {
             auto* a = new juce::DynamicObject();
-            a->setProperty ("name", name);
-            a->setProperty ("browser_download_url", "https://github.com/Yannosay/harmony/releases/download/x/" + name);
+            a->setProperty ("name", assetName);
+            a->setProperty ("browser_download_url", "https://github.com/Yannosay/harmony/releases/download/x/" + assetName);
             return juce::var (a);
         };
         assets.add (asset ("YannosayHarmony-" + tag.trimCharactersAtStart ("v") + platformInstallerSuffix()));
@@ -54,6 +54,31 @@ public:
             expect (! parseRelease (release ("v9.1.0", true, true), platformInstallerSuffix()).has_value(), "drafts are ignored");
             expect (! parseRelease (release ("latest", true), platformInstallerSuffix()).has_value());
             expect (! parseRelease (juce::var(), platformInstallerSuffix()).has_value());
+        }
+
+        beginTest ("Website manifest parsing");
+        {
+            const juce::String hash = juce::String::repeatedString ("ab", 32);
+            const auto file = "YannosayHarmony-2.1.0" + platformInstallerSuffix();
+            auto manifest = [&] (const juce::String& version, const juce::String& url, const juce::String& sha, const juce::String& fileName)
+            {
+                auto* o = new juce::DynamicObject();
+                o->setProperty ("version", version);
+                o->setProperty ("installer", url);
+                o->setProperty ("sha256", sha);
+                o->setProperty ("file", fileName);
+                return juce::var (o);
+            };
+
+            const auto good = parseManifest (manifest ("2.1.0", "https://harmony.yannosay.com/download/" + file, hash, file), platformInstallerSuffix());
+            expect (good.has_value());
+            expect (good->version == Version { 2, 1, 0 });
+            expect (good->sha256 == hash);
+            expect (! parseManifest (manifest ("2.1.0", "http://harmony.yannosay.com/download/" + file, hash, file), platformInstallerSuffix()).has_value(), "https only");
+            expect (! parseManifest (manifest ("2.1.0", "https://harmony.yannosay.com/download/" + file, "1234", file), platformInstallerSuffix()).has_value(), "hash required");
+            expect (! parseManifest (manifest ("2.1.0", "https://evil.example/other.exe", hash, file), platformInstallerSuffix()).has_value(), "url must match file");
+            expect (! parseManifest (manifest ("x", "https://harmony.yannosay.com/download/" + file, hash, file), platformInstallerSuffix()).has_value());
+            expect (! parseManifest (juce::var ("text"), platformInstallerSuffix()).has_value());
         }
 
         beginTest ("Checksum lookup and verification");

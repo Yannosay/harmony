@@ -68,6 +68,30 @@ std::optional<ReleaseInfo> parseRelease (const juce::var& json, const juce::Stri
     return info;
 }
 
+std::optional<ReleaseInfo> parseManifest (const juce::var& json, const juce::String& suffix)
+{
+    if (! json.isObject())
+        return std::nullopt;
+
+    const auto version = Version::parse (json["version"].toString());
+    const auto url = json["installer"].toString();
+    const auto hash = json["sha256"].toString().toLowerCase();
+    const auto name = json["file"].toString();
+
+    if (! version.has_value() || ! url.startsWith ("https://") || ! name.endsWithIgnoreCase (suffix)
+        || hash.length() != 64 || ! hash.containsOnly ("0123456789abcdef")
+        || name.containsAnyOf ("/\\:") || ! url.endsWith ("/" + name))
+        return std::nullopt;
+
+    ReleaseInfo info;
+    info.version = *version;
+    info.tag = "v" + version->toString();
+    info.installerName = name;
+    info.installerUrl = juce::URL (url);
+    info.sha256 = hash;
+    return info;
+}
+
 juce::String findChecksum (const juce::String& checksumsText, const juce::String& fileName)
 {
     for (auto line : juce::StringArray::fromLines (checksumsText))
@@ -137,17 +161,15 @@ void Updater::run()
 {
     setState (State::checking);
 
-    const juce::URL api ("https://api.github.com/repos/" + juce::String (repository) + "/releases/latest");
-    auto stream = api.createInputStream (requestOptions (15000));
-    if (stream == nullptr)
+    const auto release = fetchLatest();
+    if (! release.has_value())
     {
         { const juce::ScopedLock sl (lock); error = "Could not reach the update server."; }
         setState (State::failed);
         return;
     }
 
-    const auto release = parseRelease (juce::JSON::parse (stream->readEntireStreamAsString()), platformInstallerSuffix());
-    if (! release.has_value() || ! (currentVersion() < release->version))
+    if (! (currentVersion() < release->version))
     {
         setState (State::upToDate);
         return;
@@ -174,13 +196,31 @@ void Updater::run()
     setState (State::ready);
 }
 
+std::optional<ReleaseInfo> Updater::fetchLatest() const
+{
+    if (auto stream = juce::URL (manifestUrl).createInputStream (requestOptions (10000)))
+        if (auto info = parseManifest (juce::JSON::parse (stream->readEntireStreamAsString()), platformInstallerSuffix()))
+            return info;
+
+    const juce::URL api ("https://api.github.com/repos/" + juce::String (repository) + "/releases/latest");
+    if (auto stream = api.createInputStream (requestOptions (15000)))
+        return parseRelease (juce::JSON::parse (stream->readEntireStreamAsString()), platformInstallerSuffix());
+
+    return std::nullopt;
+}
+
 juce::Result Updater::download (const ReleaseInfo& release)
 {
-    auto sumsStream = release.checksumsUrl.createInputStream (requestOptions (15000));
-    if (sumsStream == nullptr)
-        return juce::Result::fail ("Could not download checksums.");
+    juce::String expected = release.sha256;
+    if (expected.isEmpty())
+    {
+        auto sumsStream = release.checksumsUrl.createInputStream (requestOptions (15000));
+        if (sumsStream == nullptr)
+            return juce::Result::fail ("Could not download checksums.");
 
-    const auto expected = findChecksum (sumsStream->readEntireStreamAsString(), release.installerName);
+        expected = findChecksum (sumsStream->readEntireStreamAsString(), release.installerName);
+    }
+
     if (expected.isEmpty())
         return juce::Result::fail ("The release has no checksum for " + release.installerName);
 

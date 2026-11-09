@@ -14,7 +14,7 @@ public:
         setUsingNativeTitleBar (false);
         setTitleBarHeight (32);
 
-        juce::AudioProcessorEditor* editor = plugin.hasEditor() ? plugin.createEditorIfNeeded() : nullptr;
+        juce::AudioProcessorEditor* editor = plugin.hasEditor() ? plugin.createEditorAndMakeActive() : nullptr;
         if (editor == nullptr)
             editor = new juce::GenericAudioProcessorEditor (plugin);
 
@@ -22,10 +22,10 @@ public:
         setResizable (editor->isResizable(), false);
         setAlwaysOnTop (false);
 
-        const auto mouse = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition().toInt();
-        setTopLeftPosition (mouse.x - getWidth() / 2, juce::jmax (40, mouse.y - 60));
+        const auto mouse = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition();
+        setTopLeftPosition ((int) mouse.x - getWidth() / 2, juce::jmax (40, (int) mouse.y - 60));
         if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForPoint (mouse))
-            setBounds (getBounds().constrainedWithin (display->userArea));
+            setBounds (getBounds().constrainedWithin (display->userBounds.toNearestInt()));
 
         setVisible (true);
     }
