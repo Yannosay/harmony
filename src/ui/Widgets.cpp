@@ -130,6 +130,25 @@ void Knob::bind (juce::ValueTree tree, const juce::Identifier& property, juce::U
     });
 }
 
+void Knob::showTransientValue (double v)
+{
+    if (isMouseButtonDown() || std::abs (getValue() - v) < 1.0e-5)
+        return;
+
+    const juce::ScopedValueSetter<bool> svs (updatingFromModel, true);
+    setValue (v, juce::dontSendNotification);
+}
+
+void Knob::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu() && onContextMenu)
+    {
+        onContextMenu();
+        return;
+    }
+    juce::Slider::mouseDown (e);
+}
+
 void Knob::mouseDoubleClick (const juce::MouseEvent&)
 {
     binding.beginGesture ("Reset " + getName());
@@ -172,6 +191,25 @@ void Fader::bind (juce::ValueTree tree, const juce::Identifier& property, juce::
         const juce::ScopedValueSetter<bool> svs (updatingFromModel, true);
         setValue (v.isVoid() ? engine::unityFader : (double) v, juce::dontSendNotification);
     });
+}
+
+void Fader::showTransientValue (double v)
+{
+    if (isMouseButtonDown() || std::abs (getValue() - v) < 1.0e-5)
+        return;
+
+    const juce::ScopedValueSetter<bool> svs (updatingFromModel, true);
+    setValue (v, juce::dontSendNotification);
+}
+
+void Fader::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu() && onContextMenu)
+    {
+        onContextMenu();
+        return;
+    }
+    juce::Slider::mouseDown (e);
 }
 
 void Fader::mouseDoubleClick (const juce::MouseEvent&)

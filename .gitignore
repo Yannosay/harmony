@@ -12,6 +12,8 @@ CMakeUserPresets.json
 /website/node_modules/
 /website/dist/
 /website/.wrangler/
+/website/.output/
+/website/.nitro/
 
 /to-do_workflow.txt
 /Design_Philosophy_*.txt

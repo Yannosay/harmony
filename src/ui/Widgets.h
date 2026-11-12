@@ -48,8 +48,11 @@ public:
     Knob (double minimum, double maximum, double defaultValue, const juce::String& tooltip = {});
 
     void bind (juce::ValueTree tree, const juce::Identifier& property, juce::UndoManager* undo);
+    void showTransientValue (double value);
     std::function<juce::String (double)> describe;
+    std::function<void()> onContextMenu;
 
+    void mouseDown (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void startedDragging() override;
     void valueChanged() override;
@@ -67,6 +70,10 @@ public:
     Fader();
 
     void bind (juce::ValueTree tree, const juce::Identifier& property, juce::UndoManager* undo);
+    void showTransientValue (double value);
+    std::function<void()> onContextMenu;
+
+    void mouseDown (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void startedDragging() override;
     void valueChanged() override;

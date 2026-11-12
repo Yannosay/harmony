@@ -1,4 +1,5 @@
 #include "engine/PluginManager.h"
+#include "engine/BuiltinEffects.h"
 
 namespace harmony::engine
 {
@@ -51,6 +52,50 @@ namespace
         }
     };
 
+    class BuiltinFormat final : public juce::AudioPluginFormat
+    {
+    public:
+        juce::String getName() const override { return builtin::formatName; }
+
+        void findAllTypesForFile (juce::OwnedArray<juce::PluginDescription>& results, const juce::String& fileOrIdentifier) override
+        {
+            if (auto* info = builtin::find (fileOrIdentifier.fromFirstOccurrenceOf ("harmony:", false, false)))
+                results.add (new juce::PluginDescription (builtin::describe (*info)));
+        }
+
+        bool fileMightContainThisPluginType (const juce::String& f) override         { return f.startsWith ("harmony:"); }
+        juce::String getNameOfPluginFromIdentifier (const juce::String& f) override  { auto* i = builtin::find (f.fromFirstOccurrenceOf ("harmony:", false, false)); return i != nullptr ? i->name : f; }
+        bool pluginNeedsRescanning (const juce::PluginDescription&) override         { return false; }
+        bool doesPluginStillExist (const juce::PluginDescription& d) override        { return fileMightContainThisPluginType (d.fileOrIdentifier); }
+        bool canScanForPlugins() const override                                      { return false; }
+        bool isTrivialToScan() const override                                        { return true; }
+        juce::FileSearchPath getDefaultLocationsToSearch() override                  { return {}; }
+        bool requiresUnblockedMessageThreadDuringCreation (const juce::PluginDescription&) const override { return false; }
+
+        juce::StringArray searchPathsForPlugins (const juce::FileSearchPath&, bool, bool) override
+        {
+            juce::StringArray ids;
+            for (auto& info : builtin::all())
+                ids.add ("harmony:" + info.id);
+            return ids;
+        }
+
+    protected:
+        void createPluginInstance (const juce::PluginDescription& description, double sampleRate, int blockSize,
+                                   PluginCreationCallback callback) override
+        {
+            auto instance = builtin::create (description.fileOrIdentifier.fromFirstOccurrenceOf ("harmony:", false, false));
+            if (instance == nullptr)
+            {
+                callback (nullptr, "Unknown Harmony effect");
+                return;
+            }
+
+            instance->setRateAndBufferSizeDetails (sampleRate, blockSize);
+            callback (std::move (instance), {});
+        }
+    };
+
     void addIfExists (juce::FileSearchPath& path, const juce::File& dir)
     {
         if (dir.isDirectory())
@@ -78,6 +123,9 @@ public:
         for (int f = 0; f < numFormats && ! threadShouldExit(); ++f)
         {
             auto* format = owner.formats.getFormat (f);
+            if (! format->canScanForPlugins())
+                continue;
+
             juce::PluginDirectoryScanner directoryScanner (owner.known, *format, owner.getSearchPath (*format),
                                                            true, owner.deadMansPedal, true);
             juce::String name;
@@ -126,6 +174,7 @@ PluginManager::PluginManager (const juce::File& dataDirectory)
       deadMansPedal (dataDirectory.getChildFile ("PluginScan.pending"))
 {
     juce::addDefaultFormatsToManager (formats);
+    formats.addFormat (std::make_unique<BuiltinFormat>());
     known.setCustomScanner (std::make_unique<OutOfProcessScanner>());
     loadList();
 }
@@ -150,11 +199,34 @@ void PluginManager::saveList() const
     }
 }
 
+bool PluginManager::isUsableEffect (const juce::PluginDescription& d)
+{
+    if (builtin::isBuiltin (d))
+        return true;
+
+    const bool generator = d.numInputChannels == 0 && d.numOutputChannels > 0;
+    return ! d.isInstrument && ! generator && ! d.category.containsIgnoreCase ("OnlyARA");
+}
+
+bool PluginManager::isUsableInstrument (const juce::PluginDescription& d)
+{
+    const bool generator = d.numInputChannels == 0 && d.numOutputChannels > 0;
+    return ! builtin::isBuiltin (d) && ! d.category.containsIgnoreCase ("OnlyARA") && (d.isInstrument || generator);
+}
+
+juce::Array<juce::PluginDescription> PluginManager::getBuiltinEffects()
+{
+    juce::Array<juce::PluginDescription> result;
+    for (auto& info : builtin::all())
+        result.add (builtin::describe (info));
+    return result;
+}
+
 juce::Array<juce::PluginDescription> PluginManager::getPlugins (bool instruments) const
 {
     juce::Array<juce::PluginDescription> result;
     for (auto& d : known.getTypes())
-        if (d.isInstrument == instruments)
+        if (instruments ? isUsableInstrument (d) : isUsableEffect (d))
             result.add (d);
 
     std::sort (result.begin(), result.end(), [] (const juce::PluginDescription& a, const juce::PluginDescription& b)
@@ -166,6 +238,10 @@ juce::Array<juce::PluginDescription> PluginManager::getPlugins (bool instruments
 
 std::optional<juce::PluginDescription> PluginManager::findByIdentifier (const juce::String& identifier) const
 {
+    for (auto& d : getBuiltinEffects())
+        if (d.createIdentifierString() == identifier)
+            return d;
+
     for (auto& d : known.getTypes())
         if (d.createIdentifierString() == identifier)
             return d;

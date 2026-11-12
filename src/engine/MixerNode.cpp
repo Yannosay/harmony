@@ -40,7 +40,7 @@ int FxSlotNode::getLatencySamples() const noexcept
 
 void FxSlotNode::process (juce::AudioBuffer<float>& io, int numSamples)
 {
-    if (bypassed.load (std::memory_order_relaxed))
+    if (bypassed.load (std::memory_order_relaxed) || plugin->getTotalNumInputChannels() == 0)
         return;
 
     juce::AudioBuffer<float> view (work.getArrayOfWritePointers(), work.getNumChannels(), numSamples);

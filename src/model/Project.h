@@ -3,6 +3,7 @@
 #include "model/Ids.h"
 #include <juce_events/juce_events.h>
 #include <juce_graphics/juce_graphics.h>
+#include <optional>
 
 namespace harmony
 {
@@ -81,6 +82,8 @@ public:
 
     juce::int64 patternLength (const juce::ValueTree& pattern) const;
     juce::int64 songLength() const;
+    std::optional<double> patternPositionAt (int patternUid, double songTick) const;
+    juce::ValueTree findPatternClipAt (int patternUid, double songTick) const;
 
     juce::ValueTree addSlot (int insertIndex, int slotIndex, const juce::String& pluginDescXml);
 

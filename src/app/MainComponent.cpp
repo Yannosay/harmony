@@ -1,5 +1,9 @@
 #include "app/MainComponent.h"
+#include "app/Preferences.h"
 #include "ui/Dialogs.h"
+#include "ui/EffectEditor.h"
+#include "ui/AutomationEditor.h"
+#include "engine/BuiltinEffects.h"
 #include "model/ChordGenerator.h"
 #include "model/DrumGenerator.h"
 
@@ -17,8 +21,9 @@ namespace
 class MainComponent::DockBar final : public juce::Component
 {
 public:
-    explicit DockBar (MainComponent& o) : owner (o)
+    explicit DockBar (MainComponent& o) : owner (o), patterns (o.ctx)
     {
+        addAndMakeVisible (patterns);
         for (auto* b : { &rackButton, &pianoButton, &mixerButton })
         {
             b->setClickingTogglesState (false);
@@ -26,9 +31,9 @@ public:
             addAndMakeVisible (b);
         }
         keepFocusOnEditors ({ &rackButton, &pianoButton, &mixerButton });
-        rackButton.setTooltip ("Channel Rack (F6)");
-        pianoButton.setTooltip ("Piano Roll (F7)");
-        mixerButton.setTooltip ("Mixer (F9)");
+        rackButton.setTooltip ("Channel Rack (F6): your instruments and step sequencer");
+        pianoButton.setTooltip ("Piano Roll (F7): edit the notes of the selected channel");
+        mixerButton.setTooltip ("Mixer (F9): effects, volume and routing. Drop effects onto a strip");
         rackButton.onClick = [this] { owner.showDock (Dock::rack); };
         pianoButton.onClick = [this] { owner.showDock (Dock::pianoRoll); };
         mixerButton.onClick = [this] { owner.showDock (Dock::mixer); };
@@ -54,13 +59,16 @@ public:
         auto r = getLocalBounds().reduced (8, 5);
         for (auto* b : { &rackButton, &pianoButton, &mixerButton })
         {
-            b->setBounds (r.removeFromLeft (130));
+            b->setBounds (r.removeFromLeft (124));
             r.removeFromLeft (6);
         }
+        r.removeFromLeft (10);
+        patterns.setBounds (r);
     }
 
 private:
     MainComponent& owner;
+    ui::PatternBar patterns;
     juce::TextButton rackButton { "Channel Rack" }, pianoButton { "Piano Roll" }, mixerButton { "Mixer" };
 };
 
@@ -201,8 +209,12 @@ MainComponent::MainComponent (Context& c)
         ctx.sync.clearFailures();
         windows.closeAll();
         ctx.engine.stop();
+        ctx.engine.clearAutomation();
         updateTitle();
     };
+
+    ui::installEffectEditors (ctx);
+    ctx.settings.addChangeListener (this);
 
     showDock (Dock::rack);
     setSize (1500, 920);
@@ -211,6 +223,8 @@ MainComponent::MainComponent (Context& c)
 
 MainComponent::~MainComponent()
 {
+    ctx.settings.removeChangeListener (this);
+    ui::removeEffectEditors();
     ctx.project.onStateReplaced = nullptr;
     ctx.sync.onError = nullptr;
     ctx.sync.onNodesChanged = nullptr;
@@ -237,20 +251,167 @@ void MainComponent::bindContext()
     ctx.importAudio = [this] (const juce::File& f, int track, juce::int64 tick) { importAudio (f, track, tick); };
     ctx.addInstrument = [this] (const juce::String& identifier) { addInstrumentChannel (identifier); };
     ctx.addFileAsChannel = [this] (const juce::File& f) { addFileAsChannel (f); };
+    ctx.createAutomation = [this] (const automation::Target& t, const juce::String& name)
+    {
+        createAutomationClip (t, name, automation::currentNormalisedValue (ctx.project, t));
+    };
+    ctx.automateParameter = [this] (juce::AudioProcessor& p, int index) { automatePluginParameter (p, index); };
+    ctx.effectTargetInsert = [this] { return effectTargetInsert(); };
+    ctx.addEffect = [this] (int insert, const juce::String& identifier, int slot) { return addEffectToInsert (insert, identifier, slot); };
+}
+
+void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    applySettings();
+}
+
+void MainComponent::applySettings()
+{
+    auto& s = ctx.settings;
+    ctx.plugins.extraFolders = juce::StringArray::fromLines (s.getValue ("pluginFolders"));
+    ctx.plugins.extraFolders.removeEmptyStrings();
+    ctx.history.setIntervalMinutes (prefs::autosaveMinutes[prefs::autosaveChoice.get (s)]);
+    ctx.engine.setMetronomeLevel ((float) prefs::metronomePercent.get (s) / 100.0f);
+    playlist.setFollowPlayhead (prefs::followPlayhead.get (s));
+    pianoRoll.setGhostsVisible (prefs::ghostNotes.get (s));
+    pianoRoll.repaint();
+
+    const float scale = (float) prefs::uiScalePercent.get (s) / 100.0f;
+    if (std::abs (juce::Desktop::getInstance().getGlobalScaleFactor() - scale) > 0.001f)
+        juce::Desktop::getInstance().setGlobalScaleFactor (scale);
+}
+
+int MainComponent::effectTargetInsert() const
+{
+    if (currentDock == Dock::mixer)
+        return mixer.getSelectedInsert();
+
+    auto channel = ctx.project.findChannel (ctx.project.selectedChannel());
+    return channel.isValid() ? (int) channel[id::insert] : 0;
+}
+
+bool MainComponent::addEffectToInsert (int insertIndex, const juce::String& identifier, int slotIndex)
+{
+    auto desc = ctx.plugins.findByIdentifier (identifier);
+    auto insert = ctx.project.findInsert (insertIndex);
+    if (! desc.has_value() || ! insert.isValid())
+    {
+        showToast ("That effect is no longer available. Rescan your plugins.", true);
+        return false;
+    }
+
+    if (! engine::PluginManager::isUsableEffect (*desc))
+    {
+        showToast (desc->name + " is an instrument. Drop it on the Channel Rack instead.", true);
+        return false;
+    }
+
+    if (slotIndex < 0)
+    {
+        for (int s = 0; s < numFxSlots && slotIndex < 0; ++s)
+        {
+            bool used = false;
+            for (auto slot : insert)
+                used = used || (int) slot[id::index] == s;
+            if (! used)
+                slotIndex = s;
+        }
+    }
+
+    if (slotIndex < 0)
+    {
+        showToast ("All " + juce::String (numFxSlots) + " effect slots on " + insert[id::name].toString() + " are in use", true);
+        return false;
+    }
+
+    ctx.project.beginTransaction ("Add effect");
+    ctx.project.addSlot (insertIndex, slotIndex, engine::PluginManager::toXmlString (*desc));
+    showDock (Dock::mixer);
+    mixer.focusInsert (insertIndex);
+    showToast ("Added " + desc->name + " to " + insert[id::name].toString());
+    return true;
+}
+
+void MainComponent::createAutomationClip (const automation::Target& target, const juce::String& name, float initialValue)
+{
+    auto& project = ctx.project;
+    const auto bar = project.ticksPerBar();
+    const juce::int64 loopStart = project.getState()[id::loopStart], loopEnd = project.getState()[id::loopEnd];
+    const bool hasLoop = loopEnd > loopStart;
+
+    const auto start = hasLoop ? loopStart : ((juce::int64) (ctx.engine.isSongMode() ? ctx.engine.getDisplayPositionTicks() : 0.0) / bar) * bar;
+    const auto length = hasLoop ? loopEnd - loopStart : bar * 4;
+
+    juce::ValueTree track;
+    for (auto t : project.tracksTree())
+    {
+        bool free = true;
+        for (auto clip : t)
+            free = free && ((juce::int64) clip[id::start] >= start + length || (juce::int64) clip[id::start] + (juce::int64) clip[id::length] <= start);
+        if (free)
+        {
+            track = t;
+            break;
+        }
+    }
+
+    project.beginTransaction ("Add automation");
+    if (! track.isValid())
+    {
+        track = juce::ValueTree (id::TRACK);
+        track.setProperty (id::uid, project.allocateUid(), nullptr);
+        track.setProperty (id::name, "Automation", nullptr);
+        track.setProperty (id::mute, false, nullptr);
+        project.tracksTree().appendChild (track, project.um());
+    }
+
+    auto clip = automation::addClip (project, track, target, start, length, initialValue, name);
+    ctx.engine.setSongMode (true);
+    showToast ("Automation for " + name + " added to " + track[id::name].toString() + ". Drag its points in the playlist or double-click it.");
+    showPanel (ui::createAutomationEditor (ctx, clip), "Automation");
+}
+
+void MainComponent::automatePluginParameter (juce::AudioProcessor& processor, int parameterIndex)
+{
+    const auto& params = processor.getParameters();
+    if (! juce::isPositiveAndBelow (parameterIndex, params.size()))
+        return;
+
+    auto* param = params[parameterIndex];
+    const auto name = processor.getName() + " " + param->getName (40);
+
+    for (auto insert : ctx.project.mixerTree())
+        for (auto slot : insert)
+            if (ctx.sync.pluginForSlot (slot[id::uid]) == &processor)
+            {
+                createAutomationClip ({ automation::Kind::slotParameter, (int) slot[id::uid], parameterIndex }, name, param->getValue());
+                return;
+            }
+
+    for (auto channel : ctx.project.channelsTree())
+        if (ctx.sync.pluginForChannel (channel[id::uid]) == &processor)
+        {
+            createAutomationClip ({ automation::Kind::channelParameter, (int) channel[id::uid], parameterIndex },
+                                  channel[id::name].toString() + " " + param->getName (40), param->getValue());
+            return;
+        }
+
+    showToast ("This plugin is not part of the project anymore", true);
+}
+
+void MainComponent::showSettings (int page)
+{
+    showPanel (createSettingsPanel (ctx, [this] { startPluginScan(); }, page), "Settings");
 }
 
 void MainComponent::startup()
 {
-    ctx.plugins.extraFolders = juce::StringArray::fromLines (ctx.settings.getValue ("pluginFolders"));
-    ctx.plugins.extraFolders.removeEmptyStrings();
-
-    static const int minutes[] = { 0, 1, 3, 5, 10 };
-    ctx.history.setIntervalMinutes (minutes[juce::jlimit (0, 4, ctx.settings.getIntValue ("autosaveChoice", 2))]);
+    applySettings();
 
     if (ctx.plugins.getKnownPlugins().getNumTypes() == 0 && ! ctx.settings.getBoolValue ("scannedOnce", false))
         juce::Timer::callAfterDelay (1200, [safe = juce::Component::SafePointer<MainComponent> (this)] { if (safe) safe->startPluginScan(); });
 
-    if (ctx.settings.getBoolValue ("autoUpdate", true))
+    if (prefs::autoUpdate.get (ctx.settings))
         juce::Timer::callAfterDelay (4000, [safe = juce::Component::SafePointer<MainComponent> (this)] { if (safe) safe->ctx.updater.check (true); });
 
     if (ctx.history.previousSessionCrashed())
@@ -271,7 +432,17 @@ void MainComponent::startup()
                     showToast ("Restored the latest snapshot. Save it to keep it.");
                 }
             });
+            updateTitle();
+            return;
         }
+    }
+
+    if (prefs::openLastProject.get (ctx.settings) && ! ctx.project.getFile().existsAsFile())
+    {
+        auto recent = juce::StringArray::fromLines (ctx.settings.getValue ("recentProjects"));
+        recent.removeEmptyStrings();
+        if (! recent.isEmpty() && juce::File (recent[0]).existsAsFile())
+            openProjectFile (juce::File (recent[0]));
     }
 
     updateTitle();
@@ -444,6 +615,12 @@ void MainComponent::handleTapTempo()
 
 ui::EditTarget* MainComponent::activeEditor()
 {
+    const auto mouse = getMouseXYRelative();
+    if (pianoRoll.isVisible() && pianoRoll.getBounds().contains (mouse))
+        return &pianoRoll;
+    if (playlist.getBounds().contains (mouse))
+        return &playlist;
+
     auto* focused = juce::Component::getCurrentlyFocusedComponent();
     if (focused == &pianoRoll || pianoRoll.isParentOf (focused))
         return &pianoRoll;
@@ -537,8 +714,8 @@ void MainComponent::getCommandInfo (juce::CommandID command, juce::ApplicationCo
         case chordGenerator:  set ("Chord generator...", "Tools", "Generate chord progressions in key"); info.addDefaultKeypress ('g', ctrl); break;
         case drumGenerator:   set ("Drum generator...", "Tools", "Generate drum grooves for your drum channels"); info.addDefaultKeypress ('g', ctrl | shift); break;
         case scanPlugins:     set ("Scan for plugins", "Tools", "Find VST, VST3 and LV2 plugins"); break;
-        case audioSettings:   set ("Audio settings...", "Tools", "Choose audio and MIDI devices"); info.addDefaultKeypress (K::F10Key, 0); break;
-        case preferences:     set ("Preferences...", "Tools", "Plugin folders, autosave and updates"); info.addDefaultKeypress (',', ctrl); break;
+        case audioSettings:   set ("Audio & MIDI settings...", "Tools", "Choose audio and MIDI devices"); info.addDefaultKeypress (K::F10Key, 0); break;
+        case preferences:     set ("Settings...", "Tools", "Interface, editing, audio, plugins and updates"); info.addDefaultKeypress (',', ctrl); break;
 
         case toolDraw:        set ("Draw tool", "Tools", "Draw notes and clips"); break;
         case toolSelect:      set ("Select tool", "Tools", "Select with a rectangle"); break;
@@ -593,8 +770,13 @@ bool MainComponent::perform (const InvocationInfo& info)
         case humanize:        pianoRoll.editHumanize(); break;
         case toggleMuteSelection: activeEditor()->editToggleMute(); break;
 
-        case playPause:       ctx.engine.togglePlay(); break;
-        case stop:            ctx.engine.stop(); break;
+        case playPause:
+            if (ctx.engine.isPlaying())
+                ctx.engine.stop (prefs::returnToStartOnStop.get (ctx.settings));
+            else
+                ctx.engine.play();
+            break;
+        case stop:            ctx.engine.stop (prefs::returnToStartOnStop.get (ctx.settings)); break;
         case record:          ctx.engine.setRecording (! ctx.engine.isRecording()); showToast (ctx.engine.isRecording() ? "MIDI recording armed: play to record into the current pattern" : "Recording disarmed"); break;
         case songMode:        ctx.engine.setSongMode (! ctx.engine.isSongMode()); break;
         case metronome:       ctx.engine.setMetronomeEnabled (! ctx.engine.isMetronomeEnabled()); break;
@@ -630,8 +812,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case chordGenerator:  showDock (Dock::pianoRoll); pianoRoll.showChordGenerator(); break;
         case drumGenerator:   rack.showDrumGenerator(); break;
         case scanPlugins:     startPluginScan(); break;
-        case audioSettings:   showPanel (createAudioSettingsPanel (ctx), "Audio & MIDI"); break;
-        case preferences:     showPanel (createPreferencesPanel (ctx, [this] { startPluginScan(); }), "Preferences"); break;
+        case audioSettings:   showSettings (2); break;
+        case preferences:     showSettings (0); break;
 
         case toolDraw:        activeEditor()->setTool (Tool::draw); break;
         case toolSelect:      activeEditor()->setTool (Tool::select); break;
@@ -761,7 +943,7 @@ void MainComponent::requestQuit (std::function<void()> onQuit)
 {
     confirmDiscard ([this, onQuit]
     {
-        if (ctx.updater.getState() == update::Updater::State::ready && ctx.settings.getBoolValue ("autoUpdate", true))
+        if (ctx.updater.getState() == update::Updater::State::ready && prefs::autoUpdate.get (ctx.settings))
         {
             ctx.updater.installAndQuit (false);
             return;
@@ -772,13 +954,31 @@ void MainComponent::requestQuit (std::function<void()> onQuit)
 
 void MainComponent::createNewProject()
 {
-    ctx.project.resetToDefault();
+    auto& project = ctx.project;
+    project.resetToDefault();
+    project.getState().setProperty (id::bpm, prefs::defaultTempo.get (ctx.settings), nullptr);
+
+    auto tracks = project.tracksTree();
+    const int wanted = prefs::defaultTrackCount.get (ctx.settings);
+    while (tracks.getNumChildren() > wanted)
+        tracks.removeChild (tracks.getNumChildren() - 1, nullptr);
+    while (tracks.getNumChildren() < wanted)
+    {
+        juce::ValueTree track (id::TRACK);
+        track.setProperty (id::uid, project.allocateUid(), nullptr);
+        track.setProperty (id::name, "Track " + juce::String (tracks.getNumChildren() + 1), nullptr);
+        track.setProperty (id::mute, false, nullptr);
+        tracks.appendChild (track, nullptr);
+    }
+
+    project.getUndo().clearUndoHistory();
+    project.markClean();
     showToast ("New project");
 }
 
 void MainComponent::showOpenDialog()
 {
-    chooser = std::make_unique<juce::FileChooser> ("Open project", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.hmy");
+    chooser = std::make_unique<juce::FileChooser> ("Open project", prefs::projectFolder (ctx.settings), "*.hmy");
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
     {
         if (fc.getResult().existsAsFile())
@@ -834,7 +1034,7 @@ void MainComponent::save (std::function<void (bool)> done)
 
 void MainComponent::saveAs (std::function<void (bool)> done)
 {
-    const auto folder = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Harmony Projects");
+    const auto folder = prefs::projectFolder (ctx.settings);
     folder.createDirectory();
     chooser = std::make_unique<juce::FileChooser> ("Save project", folder.getChildFile (ctx.project.getDisplayName() + ".hmy"), "*.hmy");
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting, [this, done] (const juce::FileChooser& fc)
@@ -930,6 +1130,15 @@ void MainComponent::addInstrumentChannel (const juce::String& identifier)
     if (! desc.has_value())
     {
         showToast ("That plugin is no longer available. Rescan your plugins.", true);
+        return;
+    }
+
+    if (! engine::PluginManager::isUsableInstrument (*desc))
+    {
+        if (engine::PluginManager::isUsableEffect (*desc))
+            addEffectToInsert (effectTargetInsert(), identifier, -1);
+        else
+            showToast (desc->name + " cannot be used as an instrument", true);
         return;
     }
 
@@ -1086,6 +1295,22 @@ void MainComponent::buildDemoContent()
     for (int i = 0; i < 8; ++i)
         project.findInsert (i + 1).setProperty (id::name, insertNames[i], nullptr);
 
+    auto builtin = [&project] (int insert, int slot, const char* effect)
+    {
+        auto desc = engine::builtin::describe (*engine::builtin::find (effect));
+        return project.addSlot (insert, slot, engine::PluginManager::toXmlString (desc));
+    };
+    builtin (0, 0, "eq");
+    builtin (0, 1, "compressor");
+    builtin (0, 2, "limiter");
+    builtin (6, 0, "reverb");
+    builtin (8, 0, "delay");
+    builtin (8, 1, "filter");
+
+    tracks.getChild (3).setProperty (id::name, "Keys fade", nullptr);
+    auto fade = automation::addClip (project, tracks.getChild (3), { automation::Kind::insertVolume, 6, -1 }, 0, bar * 8, 0.0f, "Keys volume");
+    automation::writePoints (fade, { { 0.0, 0.05f, 0.6f }, { (double) bar * 4, 0.62f, 0.0f }, { (double) bar * 8, 0.66f, 0.0f } }, nullptr);
+
     project.setCurrentPattern (chords[id::uid]);
     project.setSelectedChannel (uids[5]);
     project.getUndo().clearUndoHistory();
@@ -1145,5 +1370,36 @@ void MainComponent::saveScreenshots (const juce::File& directory)
     settleOverlays();
     capture ("harmony-palette");
     Overlay::closeAll (*this);
+
+    showSettings (1);
+    settleOverlays();
+    capture ("harmony-settings");
+    Overlay::closeAll (*this);
+
+    if (auto eq = engine::builtin::create ("eq"))
+    {
+        auto& effect = dynamic_cast<engine::builtin::Effect&> (*eq);
+        auto set = [&effect] (const char* name, float value)
+        {
+            if (auto* p = effect.state.getParameter (name))
+                p->setValueNotifyingHost (p->convertTo0to1 (value));
+        };
+        set ("lowCut", 35.0f);
+        set ("lowGain", 3.0f);
+        set ("midFreq", 420.0f);
+        set ("midGain", -4.0f);
+        set ("highGain", 2.5f);
+        eq->prepareToPlay (48000.0, 512);
+
+        std::unique_ptr<juce::AudioProcessorEditor> editor (eq->createEditorAndMakeActive());
+        editor->setVisible (true);
+        auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
+        juce::PNGImageFormat png;
+        auto file = directory.getChildFile ("harmony-effects.png");
+        file.deleteFile();
+        juce::FileOutputStream out (file);
+        png.writeImageToStream (image, out);
+        editor.reset();
+    }
 }
 }

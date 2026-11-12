@@ -39,6 +39,8 @@ set(HARMONY_CORE_SOURCES
     src/model/Ids.h
     src/model/Project.h
     src/model/Project.cpp
+    src/model/Automation.h
+    src/model/Automation.cpp
     src/model/MusicTheory.h
     src/model/MusicTheory.cpp
     src/model/ChordGenerator.h
@@ -59,6 +61,8 @@ set(HARMONY_CORE_SOURCES
     src/engine/AudioEngine.cpp
     src/engine/PluginManager.h
     src/engine/PluginManager.cpp
+    src/engine/BuiltinEffects.h
+    src/engine/BuiltinEffects.cpp
     src/engine/Renderer.h
     src/engine/Renderer.cpp
     src/update/Version.h
@@ -98,7 +102,14 @@ set(HARMONY_UI_SOURCES
     src/ui/Dialogs.h
     src/ui/Dialogs.cpp
     src/ui/CommandPalette.h
-    src/ui/CommandPalette.cpp)
+    src/ui/CommandPalette.cpp
+    src/ui/EffectEditor.h
+    src/ui/EffectEditor.cpp
+    src/ui/AutomationEditor.h
+    src/ui/AutomationEditor.cpp
+    src/ui/PatternBar.h
+    src/ui/PatternBar.cpp
+    src/app/Preferences.h)
 
 set(HARMONY_DEFINITIONS
     JUCE_WEB_BROWSER=0
@@ -166,7 +177,8 @@ if(HARMONY_BUILD_TESTS)
         tests/EngineTests.cpp
         tests/UpdaterTests.cpp
         tests/PluginHostTests.cpp
-        tests/DeviceTests.cpp)
+        tests/DeviceTests.cpp
+        tests/EffectTests.cpp)
     target_link_libraries(HarmonyTests PRIVATE HarmonyCore)
     enable_testing()
     add_test(NAME HarmonyTests COMMAND HarmonyTests)

@@ -18,6 +18,13 @@ struct RecordedEvent
     bool on;
 };
 
+class HostPlayHead final : public juce::AudioPlayHead
+{
+public:
+    juce::Optional<PositionInfo> getPosition() const override { return info; }
+    PositionInfo info;
+};
+
 class AudioEngine final : public juce::AudioIODeviceCallback,
                           private juce::MidiInputCallback,
                           private juce::Timer
@@ -33,10 +40,11 @@ public:
     void enableMidiInputs();
 
     void play();
-    void stop();
+    void stop (bool returnToStart = true);
     void togglePlay();
     bool isPlaying() const noexcept { return playing.load(); }
     void setPositionTicks (double ticks);
+    void jumpTo (double ticks);
     double getPositionTicks() const noexcept { return position.load(); }
     double getDisplayPositionTicks() const noexcept;
     void setSongMode (bool shouldUseSong);
@@ -44,10 +52,12 @@ public:
     void setRecording (bool shouldRecord) noexcept { recording = shouldRecord; }
     bool isRecording() const noexcept { return recording.load(); }
     void setMetronomeEnabled (bool enabled) noexcept { metronome = enabled; }
+    void setMetronomeLevel (float level) noexcept { metronomeLevel = juce::jlimit (0.0f, 1.0f, level); }
     bool isMetronomeEnabled() const noexcept { return metronome.load(); }
     void setCurrentPattern (int uid) noexcept { currentPattern = uid; }
     void setLiveChannel (int uid) noexcept { liveChannel = uid; }
     void panic();
+    void clearAutomation();
 
     void publish (std::unique_ptr<Snapshot> snapshot);
     const Snapshot* getPublishedSnapshot() const noexcept { return published.get(); }
@@ -122,6 +132,9 @@ private:
                    int sampleOffset, double samplesPerTick, int numSamples);
     void releaseAll (const Snapshot& snap, int sampleOffset);
     void mixDown (const Snapshot& snap, int numSamples);
+    void applyAutomation (const Snapshot& snap, double tick) noexcept;
+    void updatePlayHead (const Snapshot& snap, double tick, bool isPlaying, double samplesPerTick, bool looping);
+    void clearUntargetedAutomation();
     void addMetronome (juce::AudioBuffer<float>& out, int numSamples);
     void prepareAll (double newSampleRate, int newBlockSize);
     void retire (std::function<void()> destroy);
@@ -130,6 +143,7 @@ private:
 
     juce::AudioDeviceManager deviceManager;
     juce::AudioFormatManager formats;
+    HostPlayHead playHead;
 
     std::map<int, std::unique_ptr<ChannelNode>> channelNodes;
     std::map<int, std::unique_ptr<FxSlotNode>> slotNodes;
@@ -145,13 +159,15 @@ private:
     std::atomic<bool> stopPending { false }, seekPending { false }, panicPending { false }, offline { false };
     std::atomic<double> position { 0.0 }, seekTarget { 0.0 };
     std::atomic<double> positionStampMs { 0.0 }, ticksPerMs { 0.0 }, maxExtrapolationMs { 0.0 };
+    std::atomic<float> metronomeLevel { 0.7f };
     std::atomic<int> currentPattern { 0 }, liveChannel { 0 };
     double playStartTick = 0.0;
     bool offlineSongMode = true;
 
     double sampleRate = 48000.0;
     int blockSize = 512;
-    juce::AudioBuffer<float> chunkBuffer;
+    juce::AudioBuffer<float> chunkBuffer, directBuffer;
+    DelayCompensator directCompensator;
 
     juce::MidiMessageCollector liveCollector;
     juce::MidiBuffer liveBuffer;

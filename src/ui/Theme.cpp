@@ -392,6 +392,31 @@ namespace icons
         }
         return p;
     }
+
+    juce::Path gear()
+    {
+        juce::Path p;
+        p.addEllipse (8.5f, 8.5f, 7.0f, 7.0f);
+        for (int i = 0; i < 8; ++i)
+        {
+            const float a = (float) i * juce::MathConstants<float>::twoPi / 8.0f;
+            p.startNewSubPath (12.0f + std::cos (a) * 6.2f, 12.0f + std::sin (a) * 6.2f);
+            p.lineTo (12.0f + std::cos (a) * 9.0f, 12.0f + std::sin (a) * 9.0f);
+        }
+        return p;
+    }
+
+    juce::Path automation()
+    {
+        juce::Path p;
+        p.startNewSubPath (3.5f, 17.0f);
+        p.lineTo (8.5f, 17.0f);
+        p.quadraticTo (12.0f, 6.0f, 15.5f, 7.0f);
+        p.lineTo (20.5f, 7.0f);
+        p.addEllipse (7.0f, 15.5f, 3.0f, 3.0f);
+        p.addEllipse (14.0f, 5.5f, 3.0f, 3.0f);
+        return p;
+    }
 }
 
 LookAndFeel::LookAndFeel()

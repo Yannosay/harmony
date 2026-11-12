@@ -15,6 +15,7 @@ public:
     ~PianoRoll() override;
 
     void setChannel (int uid);
+    void setGhostsVisible (bool shouldShow);
     int getChannel() const noexcept { return channelUid; }
     void insertNotes (const std::vector<NoteData>& notes, bool replaceExisting);
     void showChordGenerator();
@@ -38,6 +39,7 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     bool keyPressed (const juce::KeyPress&) override;
 
 private:
@@ -69,7 +71,12 @@ private:
     void captureOriginals();
     void preview (int key);
     void stopPreview();
-    void applyVelocity (juce::Point<float> p);
+    void applyVelocity (juce::Point<float> p, bool paint);
+    std::vector<juce::ValueTree> velocityTargetsAt (float x) const;
+    void nudgeVelocity (const std::vector<juce::ValueTree>& notes, float delta);
+    juce::ValueTree ghostAt (juce::Point<float> p) const;
+    double playheadTick() const;
+    double rulerTickToTransport (double patternTick) const;
     void eraseAt (juce::Point<float> p);
     void sliceAt (double tick, const juce::ValueTree& hit);
     void updateChordLabel();
@@ -99,6 +106,11 @@ private:
     float lastVelocity = 0.78f;
     int previewKey = -1, hoverKey = -1;
     float lastPlayheadX = -1.0f;
+    std::vector<juce::ValueTree> velocityTargets;
+    std::vector<float> velocityOriginals;
+    float velocityGrabValue = 0.0f;
+    juce::ValueTree hoverStem, lastAddedNote;
+    double lastWheelEdit = 0.0;
 
     juce::Rectangle<int> toolbarArea, rulerArea, keysArea, gridArea, velocityArea;
 

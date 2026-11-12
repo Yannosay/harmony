@@ -54,48 +54,62 @@ namespace
         juce::String getUniqueName() const override { return desc.createIdentifierString(); }
         juce::String sortName() const override { return desc.name; }
         juce::var getDragSourceDescription() override { return "plugin:" + desc.createIdentifierString(); }
-        juce::String getTooltip() override { return desc.manufacturerName + "  " + desc.version + "  " + desc.fileOrIdentifier; }
+        juce::String getTooltip() override
+        {
+            if (isEffect())
+                return (desc.descriptiveName.isNotEmpty() ? desc.descriptiveName + ".  " : juce::String())
+                       + "Double-click to add it to " + browser.ctx.project.findInsert (targetInsert())[id::name].toString()
+                       + ", drag it onto any mixer strip, or right-click for more.";
+            return desc.manufacturerName + "  " + desc.version + "  " + desc.fileOrIdentifier;
+        }
+
+        bool isEffect() const { return engine::PluginManager::isUsableEffect (desc); }
+
+        int targetInsert() const
+        {
+            return browser.ctx.effectTargetInsert ? browser.ctx.effectTargetInsert() : 0;
+        }
 
         void paintItem (juce::Graphics& g, int w, int h) override
         {
-            paintRow (g, w, h, desc.isInstrument ? icons::piano() : icons::plug(), desc.isInstrument ? colours::accent : colours::lilac,
-                      desc.name, desc.pluginFormatName, isSelected());
+            const bool builtin = desc.pluginFormatName == "Harmony";
+            paintRow (g, w, h, isEffect() ? icons::plug() : icons::piano(), isEffect() ? colours::lilac : colours::accent,
+                      desc.name, builtin ? juce::String ("Built-in") : desc.pluginFormatName, isSelected());
+        }
+
+        void addTo (int insertIndex)
+        {
+            if (browser.ctx.addEffect)
+                browser.ctx.addEffect (insertIndex, desc.createIdentifierString(), -1);
+        }
+
+        void itemClicked (const juce::MouseEvent& e) override
+        {
+            if (! e.mods.isPopupMenu())
+                return;
+
+            auto& ctx = browser.ctx;
+            juce::PopupMenu menu;
+            if (isEffect())
+            {
+                menu.addItem ("Add to Master", [this] { addTo (0); });
+                const int target = targetInsert();
+                if (target > 0)
+                    menu.addItem ("Add to " + ctx.project.findInsert (target)[id::name].toString(), [this, target] { addTo (target); });
+            }
+            else
+            {
+                menu.addItem ("Add as new channel", [this] { if (browser.ctx.addInstrument) browser.ctx.addInstrument (desc.createIdentifierString()); });
+            }
+            menu.showMenuAsync (juce::PopupMenu::Options().withMousePosition());
         }
 
         void itemDoubleClicked (const juce::MouseEvent&) override
         {
-            auto& ctx = browser.ctx;
-            if (desc.isInstrument)
-            {
-                if (ctx.addInstrument)
-                    ctx.addInstrument (desc.createIdentifierString());
-                return;
-            }
-
-            auto channel = ctx.project.findChannel (ctx.project.selectedChannel());
-            const int insertIndex = channel.isValid() ? (int) channel[id::insert] : 0;
-            auto insert = ctx.project.findInsert (insertIndex);
-
-            for (int slot = 0; slot < numFxSlots; ++slot)
-            {
-                bool used = false;
-                for (auto s : insert)
-                    used = used || (int) s[id::index] == slot;
-
-                if (! used)
-                {
-                    ctx.project.beginTransaction ("Add effect");
-                    ctx.project.addSlot (insertIndex, slot, engine::PluginManager::toXmlString (desc));
-                    if (ctx.notify)
-                        ctx.notify ("Added " + desc.name + " to " + insert[id::name].toString(), false);
-                    if (ctx.focusMixerInsert)
-                        ctx.focusMixerInsert (insertIndex);
-                    return;
-                }
-            }
-
-            if (ctx.notify)
-                ctx.notify ("All effect slots on " + insert[id::name].toString() + " are in use", true);
+            if (isEffect())
+                addTo (targetInsert());
+            else if (browser.ctx.addInstrument)
+                browser.ctx.addInstrument (desc.createIdentifierString());
         }
 
     private:
@@ -326,14 +340,25 @@ void Browser::refresh()
 
     auto* instruments = new SectionItem (*this, "Instruments", icons::piano(), colours::accent);
     auto* effects = new SectionItem (*this, "Effects", icons::plug(), colours::lilac);
-    for (auto& d : ctx.plugins.getKnownPlugins().getTypes())
+    for (auto& d : ctx.plugins.getPlugins (true))
         if (matches (d.name) || matches (d.manufacturerName))
-            (d.isInstrument ? instruments : effects)->addSubItem (new PluginItem (*this, d));
+            instruments->addSubItem (new PluginItem (*this, d));
+
+    for (auto& d : ctx.plugins.getPlugins (false))
+        if (matches (d.name) || matches (d.manufacturerName))
+            effects->addSubItem (new PluginItem (*this, d));
 
     NameSorter sorter;
     instruments->sortSubItems (sorter);
     effects->sortSubItems (sorter);
+
+    auto* builtins = new SectionItem (*this, "Harmony effects", icons::wand(), colours::lilac);
+    for (auto& d : engine::PluginManager::getBuiltinEffects())
+        if (matches (d.name) || matches (d.category) || matches (d.descriptiveName))
+            builtins->addSubItem (new PluginItem (*this, d));
+
     root->addSubItem (instruments);
+    root->addSubItem (builtins);
     root->addSubItem (effects);
 
     auto folders = juce::StringArray::fromLines (ctx.settings.getValue ("browserFolders", defaultSampleFolders().joinIntoString ("\n")));
@@ -383,7 +408,7 @@ void Browser::refresh()
         tree.restoreOpennessState (*openness, true);
     else
         for (int i = 0; i < root->getNumSubItems(); ++i)
-            root->getSubItem (i)->setOpen (query.isNotEmpty() || i < 1);
+            root->getSubItem (i)->setOpen (query.isNotEmpty() || i < 2);
 }
 
 void Browser::paint (juce::Graphics& g)

@@ -5,6 +5,9 @@
 #include "model/MusicTheory.h"
 #include "engine/AudioEngine.h"
 #include "update/Version.h"
+#include "app/Preferences.h"
+#include "ui/SmoothView.h"
+#include "engine/PluginManager.h"
 #include <set>
 
 namespace harmony::ui
@@ -529,88 +532,309 @@ namespace
         std::unique_ptr<juce::FileChooser> chooser;
     };
 
-    class AudioSettingsPanel final : public juce::Component
+    class SettingsPage : public Panel
     {
     public:
-        explicit AudioSettingsPanel (Context& ctx)
-            : selector (ctx.engine.getDeviceManager(), 0, 2, 2, 2, true, false, true, false)
-        {
-            setSize (620, 520);
-            addAndMakeVisible (selector);
-        }
-
-        void resized() override { selector.setBounds (getLocalBounds().reduced (10)); }
-
-    private:
-        juce::AudioDeviceSelectorComponent selector;
-    };
-
-    class PreferencesPanel final : public Panel
-    {
-    public:
-        PreferencesPanel (Context& c, std::function<void()> scan)
-            : ctx (c), onScan (std::move (scan))
-        {
-            setSize (600, 470);
-
-            folders.setMultiLine (true);
-            folders.setReturnKeyStartsNewLine (true);
-            folders.setText (ctx.settings.getValue ("pluginFolders"), false);
-            folders.setTextToShowWhenEmpty ("Extra VST / VST3 folders, one per line", colours::textFaint);
-            folders.onTextChange = [this]
-            {
-                ctx.settings.setValue ("pluginFolders", folders.getText());
-                ctx.plugins.extraFolders = juce::StringArray::fromLines (folders.getText());
-                ctx.plugins.extraFolders.removeEmptyStrings();
-            };
-
-            fill (autosaveBox, { "Off", "Every minute", "Every 3 minutes", "Every 5 minutes", "Every 10 minutes" }, ctx.settings.getIntValue ("autosaveChoice", 2));
-            autosaveBox.onChange = [this]
-            {
-                static const int minutes[] = { 0, 1, 3, 5, 10 };
-                ctx.settings.setValue ("autosaveChoice", autosaveBox.getSelectedItemIndex());
-                ctx.history.setIntervalMinutes (minutes[juce::jlimit (0, 4, autosaveBox.getSelectedItemIndex())]);
-            };
-
-            autoUpdate.setButtonText ("Download updates automatically and install on restart");
-            autoUpdate.setToggleState (ctx.settings.getBoolValue ("autoUpdate", true), juce::dontSendNotification);
-            autoUpdate.onClick = [this] { ctx.settings.setValue ("autoUpdate", autoUpdate.getToggleState()); };
-
-            scanButton.onClick = [this] { if (onScan) onScan(); };
-            dataButton.onClick = [this] { ctx.settings.getFile().getParentDirectory().revealToUser(); };
-            checkButton.onClick = [this] { ctx.commands.invokeDirectly (cmd::checkUpdates, true); };
-
-            addRow ("Plugin folders", folders, 110);
-            addRow ({}, scanButton, 32);
-            addRow ("Time machine", autosaveBox);
-            addRow ({}, autoUpdate, 24);
-            addRow ({}, checkButton, 32);
-            addRow ({}, dataButton, 32);
-        }
+        explicit SettingsPage (Context& c) : ctx (c) {}
 
         void paint (juce::Graphics& g) override
         {
-            paintRowLabels (g);
-            g.setColour (colours::textFaint);
-            g.setFont (font (10.0f));
-            g.drawText (juce::String (ctx.plugins.getKnownPlugins().getNumTypes()) + " plugins known", scanButton.getBounds().translated (scanButton.getWidth() + 12, 0),
-                        juce::Justification::centredLeft, false);
+            paintRowLabels (g, labelWidth);
+            for (auto& note : notes)
+            {
+                g.setColour (colours::textFaint);
+                g.setFont (font (9.5f));
+                g.drawText (note.text, note.anchor->getBounds().translated (0, note.anchor->getHeight()).withHeight (16),
+                            juce::Justification::centredLeft, true);
+            }
         }
 
         void resized() override
         {
-            layoutRows (getLocalBounds().reduced (22, 16));
-            for (auto* b : { &scanButton, &checkButton, &dataButton })
-                b->setSize (220, b->getHeight());
+            layoutRows (getLocalBounds().reduced (24, 18), labelWidth);
+        }
+
+    protected:
+        struct Note
+        {
+            juce::Component* anchor;
+            juce::String text;
+        };
+
+        void addToggle (juce::ToggleButton& button, const prefs::BoolSetting& setting, const juce::String& text)
+        {
+            button.setButtonText (text);
+            button.setToggleState (setting.get (ctx.settings), juce::dontSendNotification);
+            button.onClick = [this, &button, setting] { setting.set (ctx.settings, button.getToggleState()); };
+            addRow ({}, button, 26);
+        }
+
+        void addNote (juce::Component& anchor, const juce::String& text, int extraHeight = 14)
+        {
+            notes.push_back ({ &anchor, text });
+            rows.back().height += extraHeight;
+        }
+
+        Context& ctx;
+        std::vector<Note> notes;
+        int labelWidth = 170;
+    };
+
+    class GeneralSettings final : public SettingsPage
+    {
+    public:
+        explicit GeneralSettings (Context& c) : SettingsPage (c)
+        {
+            juce::StringArray scales;
+            int scaleIndex = 2;
+            for (int i = 0; i < (int) std::size (prefs::uiScaleChoices); ++i)
+            {
+                scales.add (juce::String (prefs::uiScaleChoices[i]) + "%");
+                if (prefs::uiScaleChoices[i] == prefs::uiScalePercent.get (ctx.settings))
+                    scaleIndex = i;
+            }
+            fill (scaleBox, scales, scaleIndex);
+            scaleBox.onChange = [this] { prefs::uiScalePercent.set (ctx.settings, prefs::uiScaleChoices[scaleBox.getSelectedItemIndex()]); };
+            addRow ("Interface size", scaleBox);
+
+            tempoBox.setLabel ("BPM");
+            tempoBox.setValue (prefs::defaultTempo.get (ctx.settings), juce::dontSendNotification);
+            tempoBox.onChange = [this] (double v) { prefs::defaultTempo.set (ctx.settings, v); };
+            addRow ("New project tempo", tempoBox);
+
+            tracksBox.setLabel ("TRACKS");
+            tracksBox.setValue (prefs::defaultTrackCount.get (ctx.settings), juce::dontSendNotification);
+            tracksBox.onChange = [this] (double v) { prefs::defaultTrackCount.set (ctx.settings, (int) v); };
+            addRow ("New project tracks", tracksBox);
+
+            folderButton.setButtonText (prefs::projectFolder (ctx.settings).getFullPathName());
+            folderButton.onClick = [this]
+            {
+                chooser = std::make_unique<juce::FileChooser> ("Default project folder", prefs::projectFolder (ctx.settings));
+                chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this] (const juce::FileChooser& fc)
+                {
+                    if (fc.getResult().isDirectory())
+                    {
+                        ctx.settings.setValue ("projectFolder", fc.getResult().getFullPathName());
+                        folderButton.setButtonText (fc.getResult().getFullPathName());
+                    }
+                });
+            };
+            addRow ("Project folder", folderButton);
+
+            fill (autosaveBox, { "Off", "Every minute", "Every 3 minutes", "Every 5 minutes", "Every 10 minutes" }, prefs::autosaveChoice.get (ctx.settings));
+            autosaveBox.onChange = [this] { prefs::autosaveChoice.set (ctx.settings, autosaveBox.getSelectedItemIndex()); };
+            addRow ("Time machine", autosaveBox);
+            addNote (autosaveBox, "Automatic snapshots you can restore from File > Time machine.");
+
+            addToggle (reopen, prefs::openLastProject, "Open the last project when Harmony starts");
+            addToggle (autoUpdate, prefs::autoUpdate, "Download updates automatically and install them on restart");
+
+            checkButton.onClick = [this] { ctx.commands.invokeDirectly (cmd::checkUpdates, true); };
+            dataButton.onClick = [this] { ctx.settings.getFile().getParentDirectory().revealToUser(); };
+            addRow ({}, checkButton, 30);
+            addRow ({}, dataButton, 30);
+        }
+
+        void resized() override
+        {
+            SettingsPage::resized();
+            for (auto* b : { &checkButton, &dataButton })
+                b->setSize (230, b->getHeight());
+            for (auto* box : { (juce::Component*) &tempoBox, (juce::Component*) &tracksBox, (juce::Component*) &scaleBox, (juce::Component*) &autosaveBox })
+                box->setSize (200, box->getHeight());
         }
 
     private:
-        Context& ctx;
+        juce::ComboBox scaleBox, autosaveBox;
+        NumberBox tempoBox { prefs::defaultTempo.minimum, prefs::defaultTempo.maximum, 0.01, 2 };
+        NumberBox tracksBox { (double) prefs::defaultTrackCount.minimum, (double) prefs::defaultTrackCount.maximum, 1.0, 0 };
+        juce::TextButton folderButton;
+        juce::ToggleButton reopen, autoUpdate;
+        juce::TextButton checkButton { "Check for updates now" }, dataButton { "Open user data folder" };
+        std::unique_ptr<juce::FileChooser> chooser;
+    };
+
+    class EditingSettings final : public SettingsPage
+    {
+    public:
+        explicit EditingSettings (Context& c) : SettingsPage (c)
+        {
+            juce::StringArray snaps;
+            for (auto& s : snapOptions())
+                snaps.add (s.name);
+
+            fill (pianoSnapBox, snaps, prefs::pianoRollSnap.get (ctx.settings));
+            pianoSnapBox.onChange = [this] { prefs::pianoRollSnap.set (ctx.settings, pianoSnapBox.getSelectedItemIndex()); };
+            addRow ("Piano roll snap", pianoSnapBox);
+
+            fill (playlistSnapBox, snaps, prefs::playlistSnap.get (ctx.settings));
+            playlistSnapBox.onChange = [this] { prefs::playlistSnap.set (ctx.settings, playlistSnapBox.getSelectedItemIndex()); };
+            addRow ("Playlist snap", playlistSnapBox);
+
+            addToggle (preview, prefs::previewNotes, "Play notes while drawing, moving and transposing them");
+            addToggle (previewPlaying, prefs::previewWhilePlaying, "Keep playing note previews while the transport runs");
+            addToggle (ghosts, prefs::ghostNotes, "Show other channels as ghost notes in the piano roll");
+            addToggle (names, prefs::noteNames, "Show note names on piano roll notes");
+            addToggle (snapHead, prefs::snapPlayhead, "Snap the playhead to the grid when clicking a ruler (hold Alt to bypass)");
+            addToggle (follow, prefs::followPlayhead, "Scroll the playlist to follow the playhead");
+            addToggle (returnToStart, prefs::returnToStartOnStop, "Stop returns the playhead to where playback started");
+        }
+
+        void resized() override
+        {
+            SettingsPage::resized();
+            pianoSnapBox.setSize (200, pianoSnapBox.getHeight());
+            playlistSnapBox.setSize (200, playlistSnapBox.getHeight());
+        }
+
+    private:
+        juce::ComboBox pianoSnapBox, playlistSnapBox;
+        juce::ToggleButton preview, previewPlaying, ghosts, names, snapHead, follow, returnToStart;
+    };
+
+    class AudioSettings final : public SettingsPage
+    {
+    public:
+        explicit AudioSettings (Context& c)
+            : SettingsPage (c), selector (c.engine.getDeviceManager(), 0, 2, 2, 2, true, false, true, false)
+        {
+            metronome.setSliderStyle (juce::Slider::LinearHorizontal);
+            metronome.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 22);
+            metronome.setRange (0.0, 100.0, 1.0);
+            metronome.setTextValueSuffix ("%");
+            metronome.setValue (prefs::metronomePercent.get (ctx.settings), juce::dontSendNotification);
+            metronome.onValueChange = [this] { prefs::metronomePercent.set (ctx.settings, (int) metronome.getValue()); };
+            addRow ("Metronome volume", metronome, 28);
+            addRow ({}, selector, 380);
+        }
+
+        void resized() override
+        {
+            SettingsPage::resized();
+            selector.setBounds (selector.getBounds().withX (getLocalBounds().reduced (24, 0).getX()).withRight (getWidth() - 24));
+        }
+
+    private:
+        juce::Slider metronome;
+        juce::AudioDeviceSelectorComponent selector;
+    };
+
+    class PluginSettings final : public SettingsPage, private juce::ChangeListener
+    {
+    public:
+        PluginSettings (Context& c, std::function<void()> scan) : SettingsPage (c), onScan (std::move (scan))
+        {
+            folders.setMultiLine (true);
+            folders.setReturnKeyStartsNewLine (true);
+            folders.setText (ctx.settings.getValue ("pluginFolders"), false);
+            folders.setTextToShowWhenEmpty ("Extra VST / VST3 folders, one per line", colours::textFaint);
+            folders.onTextChange = [this] { ctx.settings.setValue ("pluginFolders", folders.getText()); };
+            addRow ("Extra plugin folders", folders, 120);
+            addNote (folders, "Harmony always searches the standard VST3 and VST folders as well.");
+
+            scanButton.onClick = [this] { if (onScan) onScan(); };
+            addRow ({}, scanButton, 30);
+
+            clearButton.onClick = [this]
+            {
+                ctx.plugins.getKnownPlugins().clear();
+                ctx.plugins.saveList();
+                repaint();
+            };
+            addRow ({}, clearButton, 30);
+            addNote (clearButton, "Forget every scanned plugin. Projects keep their plugins and reload them after the next scan.");
+
+            ctx.plugins.getKnownPlugins().addChangeListener (this);
+        }
+
+        ~PluginSettings() override
+        {
+            ctx.plugins.getKnownPlugins().removeChangeListener (this);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            SettingsPage::paint (g);
+            g.setColour (colours::textDim);
+            g.setFont (font (10.0f));
+            const int count = ctx.plugins.getKnownPlugins().getNumTypes();
+            g.drawText (juce::String (count) + " plugins known, plus " + juce::String ((int) engine::PluginManager::getBuiltinEffects().size()) + " built-in effects",
+                        scanButton.getBounds().translated (scanButton.getWidth() + 14, 0).withWidth (360), juce::Justification::centredLeft, false);
+        }
+
+        void resized() override
+        {
+            SettingsPage::resized();
+            scanButton.setSize (230, scanButton.getHeight());
+            clearButton.setSize (230, clearButton.getHeight());
+        }
+
+    private:
+        void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
+
         std::function<void()> onScan;
         juce::TextEditor folders;
-        juce::ComboBox autosaveBox;
-        juce::ToggleButton autoUpdate;
-        juce::TextButton scanButton { "Scan for plugins" }, checkButton { "Check for updates now" }, dataButton { "Open user data folder" };
+        juce::TextButton scanButton { "Scan for plugins" }, clearButton { "Clear plugin list" };
+    };
+
+    class SettingsPanel final : public juce::Component
+    {
+    public:
+        SettingsPanel (Context& ctx, std::function<void()> scan, int initialPage)
+        {
+            setSize (820, 560);
+            pages.push_back (std::make_unique<GeneralSettings> (ctx));
+            pages.push_back (std::make_unique<EditingSettings> (ctx));
+            pages.push_back (std::make_unique<AudioSettings> (ctx));
+            pages.push_back (std::make_unique<PluginSettings> (ctx, std::move (scan)));
+
+            const char* names[] = { "General", "Editing", "Audio & MIDI", "Plugins" };
+            for (int i = 0; i < (int) pages.size(); ++i)
+            {
+                auto button = std::make_unique<juce::TextButton> (names[i]);
+                button->setClickingTogglesState (false);
+                button->setColour (juce::TextButton::buttonOnColourId, colours::accent);
+                button->onClick = [this, i] { showPage (i); };
+                addAndMakeVisible (*button);
+                tabs.push_back (std::move (button));
+                addChildComponent (*pages[(size_t) i]);
+            }
+            showPage (juce::jlimit (0, (int) pages.size() - 1, initialPage));
+        }
+
+        void showPage (int index)
+        {
+            for (size_t i = 0; i < pages.size(); ++i)
+            {
+                pages[i]->setVisible ((int) i == index);
+                tabs[i]->setToggleState ((int) i == index, juce::dontSendNotification);
+            }
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.setColour (colours::line);
+            g.fillRect (tabWidth, 8, 1, getHeight() - 16);
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            auto column = r.removeFromLeft (tabWidth).reduced (14, 12);
+            for (auto& t : tabs)
+            {
+                t->setBounds (column.removeFromTop (32));
+                column.removeFromTop (6);
+            }
+            for (auto& p : pages)
+                p->setBounds (r.withTrimmedLeft (1));
+        }
+
+    private:
+        static constexpr int tabWidth = 170;
+        std::vector<std::unique_ptr<juce::TextButton>> tabs;
+        std::vector<std::unique_ptr<juce::Component>> pages;
     };
 
     class HistoryPanel final : public juce::Component, private juce::ListBoxModel
@@ -824,14 +1048,9 @@ std::unique_ptr<juce::Component> createRenderPanel (Context& ctx, std::function<
     return std::make_unique<RenderPanel> (ctx, std::move (start));
 }
 
-std::unique_ptr<juce::Component> createAudioSettingsPanel (Context& ctx)
+std::unique_ptr<juce::Component> createSettingsPanel (Context& ctx, std::function<void()> scanPlugins, int page)
 {
-    return std::make_unique<AudioSettingsPanel> (ctx);
-}
-
-std::unique_ptr<juce::Component> createPreferencesPanel (Context& ctx, std::function<void()> scanPlugins)
-{
-    return std::make_unique<PreferencesPanel> (ctx, std::move (scanPlugins));
+    return std::make_unique<SettingsPanel> (ctx, std::move (scanPlugins), page);
 }
 
 std::unique_ptr<juce::Component> createHistoryPanel (Context& ctx, std::function<void (const juce::File&)> restore)

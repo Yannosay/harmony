@@ -365,6 +365,17 @@ void ProjectSync::valueTreePropertyChanged (juce::ValueTree& tree, const juce::I
 
     if (liveParameter)
     {
+        StereoGainStage* stage = nullptr;
+        if (tree.hasType (id::CHANNEL))
+            if (auto* node = engine.findChannelNode (tree[id::uid]))
+                stage = &node->gain;
+        if (tree.hasType (id::INSERT))
+            if (auto* insert = engine.getInsertNode (tree[id::index]))
+                stage = &insert->gain;
+
+        if (stage != nullptr && property == id::volume) stage->automatedVolume = -1.0f;
+        if (stage != nullptr && property == id::pan)    stage->automatedPan = -2.0f;
+
         if (tree.hasType (id::CHANNEL))     { applyChannelParameters (tree); return; }
         if (tree.hasType (id::INSERT))      { applyInsertParameters (tree); return; }
         if (tree.hasType (id::SLOT))        { applySlotParameters (tree); return; }

@@ -2,6 +2,8 @@
 #include "ui/Dialogs.h"
 #include "app/CommandIds.h"
 #include "engine/AudioEngine.h"
+#include "app/Preferences.h"
+#include "model/Automation.h"
 
 namespace harmony::ui
 {
@@ -31,14 +33,91 @@ public:
         addAndMakeVisible (pan);
         addAndMakeVisible (volume);
 
+        pan.onContextMenu = [this] { showAutomationMenu (automation::Kind::channelPan); };
+        volume.onContextMenu = [this] { showAutomationMenu (automation::Kind::channelVolume); };
+
         insertBox.setValue ((int) channel[id::insert], juce::dontSendNotification);
-        insertBox.setTooltip ("Mixer insert this channel is routed to");
+        insertBox.setTooltip ("Mixer insert this channel is routed to (0 = Master). Drag or scroll to change.");
         insertBox.onGestureStart = [this] { rack.ctx.project.beginTransaction ("Route channel"); };
         insertBox.onChange = [this] (double v) { channel.setProperty (id::insert, (int) v, rack.ctx.project.um()); };
         addAndMakeVisible (insertBox);
     }
 
     int uid() const { return channel[id::uid]; }
+
+    bool isSoundFont() const { return channel[id::kind].toString() == kind::soundfont; }
+
+    juce::Rectangle<int> presetArea() const
+    {
+        auto r = nameArea();
+        return r.withTrimmedTop (r.getHeight() / 2).withTrimmedLeft (16).withTrimmedRight (6);
+    }
+
+    juce::String presetName() const
+    {
+        const auto presets = rack.ctx.sync.soundFontPresets (uid());
+        const int index = juce::jmax (0, (int) channel[id::sfPreset]);
+        if (presets.isEmpty())
+            return "Loading presets...";
+        return juce::isPositiveAndBelow (index, presets.size()) ? presets[index] : "Preset " + juce::String (index + 1);
+    }
+
+    void showPresetMenu()
+    {
+        const auto presets = rack.ctx.sync.soundFontPresets (uid());
+        juce::PopupMenu menu;
+        menu.addItem ("Search presets...", [this] { if (rack.ctx.openChannelEditor) rack.ctx.openChannelEditor (uid()); });
+        menu.addSeparator();
+
+        const int current = (int) channel[id::sfPreset];
+        constexpr int perPage = 32;
+        for (int page = 0; page * perPage < presets.size(); ++page)
+        {
+            juce::PopupMenu sub;
+            for (int i = page * perPage; i < juce::jmin (presets.size(), (page + 1) * perPage); ++i)
+                sub.addItem (juce::String (i + 1).paddedLeft ('0', 3) + "  " + presets[i], true, i == current, [this, i]
+                {
+                    rack.ctx.project.beginTransaction ("Change preset");
+                    channel.setProperty (id::sfPreset, i, rack.ctx.project.um());
+                    auto& engine = rack.ctx.engine;
+                    engine.sendPreviewNote (uid(), 60, 0.8f, true);
+                    juce::Timer::callAfterDelay (300, [&engine, u = uid()] { engine.sendPreviewNote (u, 60, 0.0f, false); });
+                });
+
+            const int first = page * perPage + 1;
+            const int last = juce::jmin (presets.size(), (page + 1) * perPage);
+            const bool containsCurrent = current >= first - 1 && current < last;
+            menu.addSubMenu (juce::String (first) + " - " + juce::String (last) + (containsCurrent ? "   (current)" : ""), sub);
+        }
+
+        if (presets.isEmpty())
+            menu.addItem ("The SoundFont is still loading", false, false, nullptr);
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (presetArea())));
+    }
+
+    void showAutomationMenu (automation::Kind kind)
+    {
+        juce::PopupMenu menu;
+        const bool isVolume = kind == automation::Kind::channelVolume;
+        menu.addItem ("Create automation clip", rack.ctx.createAutomation != nullptr, false, [this, kind, isVolume]
+        {
+            if (rack.ctx.createAutomation)
+                rack.ctx.createAutomation ({ kind, uid(), -1 }, channel[id::name].toString() + (isVolume ? " volume" : " pan"));
+        });
+        menu.showMenuAsync (juce::PopupMenu::Options().withMousePosition());
+    }
+
+    void showAutomatedValues()
+    {
+        if (auto* node = rack.ctx.engine.findChannelNode (uid()))
+        {
+            const float v = node->gain.automatedVolume.load();
+            const float p = node->gain.automatedPan.load();
+            volume.showTransientValue (v >= 0.0f ? v : (float) channel.getProperty (id::volume, 0.78f));
+            pan.showTransientValue (p >= -1.0f ? p : (float) channel.getProperty (id::pan, 0.0f));
+        }
+    }
 
     void refresh()
     {
@@ -143,8 +222,14 @@ public:
             n.start = (juce::int64) step * ticksPerStep;
             n.length = ticksPerStep;
             project.addNote (project.currentPattern(), n);
-            rack.ctx.engine.sendPreviewNote (uid(), stepKey, 0.78f, true);
-            juce::Timer::callAfterDelay (120, [&engine = rack.ctx.engine, u = uid()] { engine.sendPreviewNote (u, stepKey, 0.0f, false); });
+
+            auto& engine = rack.ctx.engine;
+            const auto& settings = rack.ctx.settings;
+            if (prefs::previewNotes.get (settings) && (! engine.isPlaying() || prefs::previewWhilePlaying.get (settings)))
+            {
+                engine.sendPreviewNote (uid(), stepKey, 0.78f, true);
+                juce::Timer::callAfterDelay (120, [&engine, u = uid()] { engine.sendPreviewNote (u, stepKey, 0.0f, false); });
+            }
         }
         else if (! on && existing.isValid())
         {
@@ -187,7 +272,21 @@ public:
         g.fillRoundedRectangle (name.removeFromLeft (4.0f).withTrimmedTop (4.0f).withTrimmedBottom (4.0f).translated (4.0f, 0.0f), 2.0f);
         g.setColour (muted ? colours::textFaint : colours::text);
         g.setFont (font (11.5f, Weight::medium));
-        g.drawFittedText (channel[id::name].toString(), nameArea().withTrimmedLeft (16).withTrimmedRight (8), juce::Justification::centredLeft, 1);
+        if (isSoundFont())
+        {
+            auto top = nameArea().withTrimmedLeft (16).withTrimmedRight (8);
+            g.drawFittedText (channel[id::name].toString(), top.removeFromTop (top.getHeight() / 2 + 2), juce::Justification::bottomLeft, 1);
+            auto preset = presetArea();
+            g.setColour (hoverPreset ? colours::accent : colours::textDim);
+            g.setFont (font (9.0f, Weight::medium));
+            g.drawText (presetName(), preset.withTrimmedRight (14), juce::Justification::centredLeft, true);
+            drawIcon (g, icons::chevronDown(), preset.removeFromRight (12).toFloat().withSizeKeepingCentre (10.0f, 10.0f),
+                      hoverPreset ? colours::accent : colours::textFaint);
+        }
+        else
+        {
+            g.drawFittedText (channel[id::name].toString(), nameArea().withTrimmedLeft (16).withTrimmedRight (8), juce::Justification::centredLeft, 1);
+        }
 
         const bool loaded = rack.ctx.engine.findChannelNode (uid()) != nullptr || rack.ctx.sync.signatureFor (channel).isEmpty();
         if (! loaded)
@@ -292,6 +391,12 @@ public:
 
         project.setSelectedChannel (uid());
 
+        if (isSoundFont() && presetArea().contains (p.toInt()) && ! e.mods.isPopupMenu())
+        {
+            showPresetMenu();
+            return;
+        }
+
         if (nameArea().contains (p.toInt()))
         {
             if (e.mods.isPopupMenu())
@@ -346,10 +451,33 @@ public:
             rename();
     }
 
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (hoverPreset)
+        {
+            hoverPreset = false;
+            repaint (nameArea());
+        }
+    }
+
     void mouseMove (const juce::MouseEvent& e) override
     {
+        const bool overPreset = isSoundFont() && presetArea().contains (e.position.toInt());
+        if (overPreset != hoverPreset)
+        {
+            hoverPreset = overPreset;
+            setMouseCursor (overPreset ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            repaint (nameArea());
+        }
+
         if (rack.ctx.setHint == nullptr)
             return;
+
+        if (overPreset)
+        {
+            rack.ctx.setHint ("Click to choose a SoundFont preset");
+            return;
+        }
 
         if (stepsArea().contains (e.position.toInt()))
             rack.ctx.setHint (isStepView() ? "Click or drag to toggle steps, right-drag to erase" : "Click to edit these notes in the Piano Roll");
@@ -378,7 +506,21 @@ public:
         const int u = uid();
 
         menu.addItem ("Piano roll", [this, u] { if (rack.ctx.openPianoRoll) rack.ctx.openPianoRoll (u); });
-        menu.addItem ("Open editor", [this, u] { if (rack.ctx.openChannelEditor) rack.ctx.openChannelEditor (u); });
+        menu.addItem (isSoundFont() ? "Presets and settings" : "Open editor", [this, u] { if (rack.ctx.openChannelEditor) rack.ctx.openChannelEditor (u); });
+
+        juce::PopupMenu automate;
+        automate.addItem ("Volume", [this] { if (rack.ctx.createAutomation) rack.ctx.createAutomation ({ automation::Kind::channelVolume, uid(), -1 }, channel[id::name].toString() + " volume"); });
+        automate.addItem ("Pan", [this] { if (rack.ctx.createAutomation) rack.ctx.createAutomation ({ automation::Kind::channelPan, uid(), -1 }, channel[id::name].toString() + " pan"); });
+        if (auto* plugin = rack.ctx.sync.pluginForChannel (u))
+        {
+            juce::PopupMenu params;
+            const auto& list = plugin->getParameters();
+            for (int i = 0; i < juce::jmin (list.size(), 512); ++i)
+                if (list[i]->isAutomatable())
+                    params.addItem (list[i]->getName (48), [this, plugin, i] { if (rack.ctx.automateParameter) rack.ctx.automateParameter (*plugin, i); });
+            automate.addSubMenu ("Plugin parameter", params, params.getNumItems() > 0);
+        }
+        menu.addSubMenu ("Automate", automate);
         menu.addSeparator();
         menu.addItem ("Rename", [this] { rename(); });
 
@@ -454,6 +596,7 @@ public:
     Knob volume { 0.0, 1.25, 0.78, "Volume" };
     NumberBox insertBox { 0.0, (double) numMixerInserts, 1.0, 0 };
     float activity = 0.0f;
+    bool hoverPreset = false;
     int playStep = -1;
     int paintMode = -1;
     int lastPaintedStep = -1;
@@ -578,8 +721,15 @@ void ChannelRack::resized()
 
 void ChannelRack::timerCallback()
 {
-    const bool patternPlaying = ctx.engine.isPlaying() && ! ctx.engine.isSongMode();
-    const int step = patternPlaying ? (int) (ctx.engine.getDisplayPositionTicks() / ticksPerStep) : -1;
+    int step = -1;
+    if (ctx.engine.isPlaying())
+    {
+        const double tick = ctx.engine.getDisplayPositionTicks();
+        if (! ctx.engine.isSongMode())
+            step = (int) (tick / ticksPerStep);
+        else if (auto local = ctx.project.patternPositionAt (ctx.project.currentPattern()[id::uid], tick))
+            step = (int) (*local / ticksPerStep);
+    }
 
     for (auto& row : rows)
     {
@@ -589,6 +739,7 @@ void ChannelRack::timerCallback()
 
         row->setActivity (level);
         row->setPlayStep (step);
+        row->showAutomatedValues();
     }
 }
 

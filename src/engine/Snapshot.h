@@ -1,13 +1,16 @@
 #pragma once
 
-#include <juce_core/juce_core.h>
+#include "model/Automation.h"
 #include <vector>
+
+namespace juce { class AudioProcessorParameter; }
 
 namespace harmony::engine
 {
 class ChannelNode;
 class InsertNode;
 class FxSlotNode;
+class StereoGainStage;
 
 struct MidiEvent
 {
@@ -49,6 +52,26 @@ struct InsertPlan
     std::vector<FxSlotNode*> slots;
 };
 
+struct AutomationSegment
+{
+    juce::int64 start;
+    juce::int64 end;
+    juce::int64 offset;
+    std::vector<automation::Point> points;
+};
+
+struct AutomationLane
+{
+    enum class Mode { volume, pan, parameter };
+
+    Mode mode = Mode::parameter;
+    StereoGainStage* gain = nullptr;
+    juce::AudioProcessorParameter* parameter = nullptr;
+    std::vector<AutomationSegment> segments;
+
+    bool valueAt (double tick, float& value) const noexcept;
+};
+
 struct Snapshot
 {
     double bpm = 128.0;
@@ -60,6 +83,9 @@ struct Snapshot
     std::vector<PatternInfo> patterns;
     std::vector<ChannelPlan> channels;
     std::vector<InsertPlan> inserts;
+    std::vector<AutomationLane> automation;
+    int numerator = 4;
+    int denominator = 4;
 
     int patternIndex (int uid) const noexcept
     {

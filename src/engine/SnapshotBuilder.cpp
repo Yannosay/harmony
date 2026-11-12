@@ -1,5 +1,6 @@
 #include "engine/SnapshotBuilder.h"
 #include "engine/AudioEngine.h"
+#include <map>
 
 namespace harmony::engine
 {
@@ -20,6 +21,59 @@ namespace
     juce::uint8 toMidiVelocity (float v) noexcept
     {
         return (juce::uint8) juce::jlimit (1, 127, juce::roundToInt (v * 127.0f));
+    }
+
+    juce::AudioProcessorParameter* parameterAt (juce::AudioPluginInstance* plugin, int index)
+    {
+        if (plugin == nullptr)
+            return nullptr;
+
+        const auto& params = plugin->getParameters();
+        return juce::isPositiveAndBelow (index, params.size()) ? params[index] : nullptr;
+    }
+
+    bool resolveLane (const automation::Target& target, const AudioEngine& engine, AutomationLane& lane)
+    {
+        using automation::Kind;
+
+        switch (target.kind)
+        {
+            case Kind::channelVolume:
+            case Kind::channelPan:
+                if (auto* node = engine.findChannelNode (target.id))
+                {
+                    lane.gain = &node->gain;
+                    lane.mode = target.kind == Kind::channelVolume ? AutomationLane::Mode::volume : AutomationLane::Mode::pan;
+                    return true;
+                }
+                return false;
+
+            case Kind::insertVolume:
+            case Kind::insertPan:
+                if (auto* insert = engine.getInsertNode (target.id))
+                {
+                    lane.gain = &insert->gain;
+                    lane.mode = target.kind == Kind::insertVolume ? AutomationLane::Mode::volume : AutomationLane::Mode::pan;
+                    return true;
+                }
+                return false;
+
+            case Kind::slotParameter:
+                if (auto* slot = engine.findSlotNode (target.id))
+                    lane.parameter = parameterAt (slot->getPlugin(), target.parameter);
+                lane.mode = AutomationLane::Mode::parameter;
+                return lane.parameter != nullptr;
+
+            case Kind::channelParameter:
+                if (auto* node = engine.findChannelNode (target.id))
+                    lane.parameter = parameterAt (node->getPlugin(), target.parameter);
+                lane.mode = AutomationLane::Mode::parameter;
+                return lane.parameter != nullptr;
+
+            case Kind::none:
+                break;
+        }
+        return false;
     }
 }
 
@@ -61,6 +115,8 @@ std::unique_ptr<Snapshot> buildSnapshot (const Project& project, const AudioEngi
     const auto& state = project.getState();
 
     snap->bpm = project.getBpm();
+    snap->numerator = project.getNumerator();
+    snap->denominator = project.getDenominator();
     snap->ticksPerBeat = project.ticksPerBeat();
     snap->ticksPerBar = project.ticksPerBar();
     snap->songLength = project.songLength();
@@ -91,6 +147,8 @@ std::unique_ptr<Snapshot> buildSnapshot (const Project& project, const AudioEngi
         snap->channels.push_back (std::move (plan));
     }
 
+    std::map<juce::String, size_t> laneIndex;
+
     for (auto track : project.tracksTree())
     {
         if ((bool) track[id::mute])
@@ -105,7 +163,23 @@ std::unique_ptr<Snapshot> buildSnapshot (const Project& project, const AudioEngi
             const juce::int64 length = juce::jmax ((juce::int64) 1, (juce::int64) clip[id::length]);
             const juce::int64 offset = juce::jmax ((juce::int64) 0, (juce::int64) clip[id::offset]);
 
-            if (clip[id::kind].toString() == kind::pattern)
+            if (clip[id::kind].toString() == kind::automation)
+            {
+                const auto key = clip[id::target].toString();
+                auto existing = laneIndex.find (key);
+                if (existing == laneIndex.end())
+                {
+                    AutomationLane lane;
+                    if (! resolveLane (automation::parse (key), engine, lane))
+                        continue;
+
+                    existing = laneIndex.emplace (key, snap->automation.size()).first;
+                    snap->automation.push_back (std::move (lane));
+                }
+
+                snap->automation[existing->second].segments.push_back ({ start, start + length, offset, automation::readPoints (clip) });
+            }
+            else if (clip[id::kind].toString() == kind::pattern)
             {
                 const int patternUid = clip[id::pattern];
                 const int patternIndex = snap->patternIndex (patternUid);
@@ -133,6 +207,10 @@ std::unique_ptr<Snapshot> buildSnapshot (const Project& project, const AudioEngi
 
     for (auto& plan : snap->channels)
         sortEvents (plan.song);
+
+    for (auto& lane : snap->automation)
+        std::stable_sort (lane.segments.begin(), lane.segments.end(),
+                          [] (const AutomationSegment& a, const AutomationSegment& b) { return a.start < b.start; });
 
     for (auto insert : project.mixerTree())
     {

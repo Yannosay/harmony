@@ -12,6 +12,7 @@
 #include "ui/MixerView.h"
 #include "ui/PluginWindows.h"
 #include "ui/CommandPalette.h"
+#include "ui/PatternBar.h"
 #include "engine/Renderer.h"
 
 namespace harmony
@@ -20,6 +21,7 @@ class MainComponent final : public juce::Component,
                             public juce::ApplicationCommandTarget,
                             public juce::MenuBarModel,
                             public juce::DragAndDropContainer,
+                            private juce::ChangeListener,
                             private juce::Timer
 {
 public:
@@ -56,13 +58,20 @@ private:
     class StatusBar;
 
     void timerCallback() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void applySettings();
     void bindContext();
+    void createAutomationClip (const automation::Target& target, const juce::String& name, float initialValue);
+    void automatePluginParameter (juce::AudioProcessor& processor, int parameterIndex);
+    bool addEffectToInsert (int insertIndex, const juce::String& identifier, int slotIndex);
+    int effectTargetInsert() const;
     void layoutMiddle();
     void createNewProject();
     void showOpenDialog();
     void save (std::function<void (bool)> done = {});
     void saveAs (std::function<void (bool)> done = {});
     void addRecent (const juce::File& file);
+    void showSettings (int page);
     void showPanel (std::unique_ptr<juce::Component> panel, const juce::String& title);
     void startRender (engine::RenderSettings settings, bool minimise);
     void startPluginScan();

@@ -2,6 +2,7 @@
 #include "ui/Dialogs.h"
 #include "model/MusicTheory.h"
 #include "engine/AudioEngine.h"
+#include "app/Preferences.h"
 
 namespace harmony::ui
 {
@@ -14,6 +15,8 @@ namespace
     constexpr int keysWidth = 72;
     constexpr int velocityHeight = 72;
     constexpr float edgeGrab = 6.0f;
+    constexpr float stemGrab = 10.0f;
+    constexpr float stemReach = 28.0f;
 
     bool isBlackKey (int key)
     {
@@ -75,7 +78,16 @@ PianoRoll::PianoRoll (Context& c)
     keepFocusOnEditors ({ &channelButton, &snapBox, &rootBox, &scaleBox });
     project.getState().addListener (this);
     channelUid = project.selectedChannel();
+    ghosts = prefs::ghostNotes.get (ctx.settings);
+    snapIndex = prefs::pianoRollSnap.get (ctx.settings);
     refreshToolbar();
+}
+
+void PianoRoll::setGhostsVisible (bool shouldShow)
+{
+    ghosts = shouldShow;
+    refreshToolbar();
+    repaint();
 }
 
 PianoRoll::~PianoRoll()
@@ -190,6 +202,12 @@ void PianoRoll::preview (int key)
         return;
 
     stopPreview();
+
+    const bool wanted = drag == Drag::keyboard
+                     || (prefs::previewNotes.get (ctx.settings) && (! ctx.engine.isPlaying() || prefs::previewWhilePlaying.get (ctx.settings)));
+    if (! wanted)
+        return;
+
     previewKey = key;
     ctx.engine.sendPreviewNote (channelUid, key, lastVelocity, true);
 }
@@ -330,14 +348,22 @@ void PianoRoll::drawNotes (juce::Graphics& g) const
             if ((double) (note.start + note.length) < visibleStart || (double) note.start > visibleEnd)
                 continue;
 
-            const auto r = noteRect (note).reduced (0.5f, 1.0f);
-            g.setColour (colours::textFaint.withAlpha (0.22f));
+            const auto r = noteRect (note).reduced (0.5f, 1.5f);
+            const auto ghostColour = channelColour (project.findChannel (note.channel));
+            g.setColour (ghostColour.withAlpha (0.07f));
             g.fillRoundedRectangle (r, 2.5f);
+            g.setColour (ghostColour.withAlpha (0.32f));
+            const float dashes[] = { 3.0f, 2.0f };
+            juce::Path outline;
+            outline.addRoundedRectangle (r, 2.5f);
+            juce::Path dashed;
+            juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+            g.fillPath (dashed);
         }
     }
 
     const auto base = channelColour (project.findChannel (channelUid));
-    const bool showNames = rowHeight.current >= 12.0;
+    const bool showNames = rowHeight.current >= 12.0 && prefs::noteNames.get (ctx.settings);
     g.setFont (font (juce::jmin (10.0f, (float) rowHeight.current - 5.0f), Weight::medium));
 
     for (auto& n : channelNotes())
@@ -445,9 +471,24 @@ void PianoRoll::drawVelocityLane (juce::Graphics& g) const
 
         const float h = lane.getHeight() * note.velocity;
         const bool selected = selection.contains (n);
-        g.setColour ((note.muted ? colours::textFaint : base).withAlpha (selected ? 1.0f : 0.75f));
-        g.fillRect (x, lane.getBottom() - h, 2.0f, h);
-        g.fillEllipse (x - 2.5f, lane.getBottom() - h - 3.0f, 7.0f, 7.0f);
+        const bool hovered = n == hoverStem || std::find (velocityTargets.begin(), velocityTargets.end(), n) != velocityTargets.end();
+        auto colour = (note.muted ? colours::textFaint : base).withAlpha (selected || hovered ? 1.0f : 0.7f);
+        if (hovered)
+            colour = colour.brighter (0.3f);
+
+        g.setColour (colour);
+        g.fillRect (x, lane.getBottom() - h, hovered ? 3.0f : 2.0f, h);
+        const float knob = hovered ? 10.0f : 7.0f;
+        g.fillEllipse (x + 1.0f - knob * 0.5f, lane.getBottom() - h - knob * 0.5f, knob, knob);
+
+        if (hovered)
+        {
+            g.setColour (colours::text);
+            g.setFont (font (9.0f, Weight::medium));
+            g.drawText (juce::String (juce::roundToInt (note.velocity * 100.0f)) + "%",
+                        juce::Rectangle<float> (x + 8.0f, juce::jmax (lane.getY(), lane.getBottom() - h - 8.0f), 40.0f, 12.0f),
+                        juce::Justification::centredLeft, false);
+        }
     }
 }
 
@@ -493,11 +534,11 @@ void PianoRoll::paint (juce::Graphics& g)
         g.drawText (chordText, toolbarArea.withTrimmedRight (14), juce::Justification::centredRight, false);
     }
 
-    if (! ctx.engine.isSongMode())
+    if (const double tick = playheadTick(); tick >= 0.0)
     {
         juce::Graphics::ScopedSaveState s (g);
         g.reduceClipRegion (gridArea.getUnion (rulerArea));
-        drawPlayhead (g, rulerArea.getUnion (gridArea), ctx.engine.getDisplayPositionTicks());
+        drawPlayhead (g, rulerArea.getUnion (gridArea), tick);
     }
 
     if (! project.findChannel (channelUid).isValid())
@@ -508,9 +549,57 @@ void PianoRoll::paint (juce::Graphics& g)
     }
 }
 
+double PianoRoll::playheadTick() const
+{
+    const double tick = ctx.engine.getDisplayPositionTicks();
+    if (! ctx.engine.isSongMode())
+        return tick;
+
+    if (auto local = project.patternPositionAt (pattern()[id::uid], tick))
+        return *local;
+    return -1.0;
+}
+
+double PianoRoll::rulerTickToTransport (double patternTick) const
+{
+    if (! ctx.engine.isSongMode())
+        return patternTick;
+
+    const int uid = pattern()[id::uid];
+    const double now = ctx.engine.getDisplayPositionTicks();
+    auto clip = project.findPatternClipAt (uid, now);
+
+    if (! clip.isValid())
+    {
+        double best = std::numeric_limits<double>::max();
+        for (auto track : project.tracksTree())
+            for (auto c : track)
+                if (c[id::kind].toString() == kind::pattern && (int) c[id::pattern] == uid && (double) (juce::int64) c[id::start] < best)
+                {
+                    best = (double) (juce::int64) c[id::start];
+                    clip = c;
+                }
+    }
+
+    if (! clip.isValid())
+    {
+        ctx.engine.setSongMode (false);
+        return patternTick;
+    }
+
+    const double start = (double) (juce::int64) clip[id::start];
+    const double length = (double) (juce::int64) clip[id::length];
+    const double offset = (double) (juce::int64) clip[id::offset];
+    const double patternLength = (double) juce::jmax ((juce::int64) 1, project.patternLength (pattern()));
+    const double clipLocal = now >= start && now < start + length ? now - start + offset : offset;
+    const double cycleStart = std::floor (clipLocal / patternLength) * patternLength;
+    return juce::jlimit (start, start + length - 1.0, start + cycleStart + patternTick - offset);
+}
+
 void PianoRoll::animationTick()
 {
-    if (! ctx.engine.isPlaying() || ctx.engine.isSongMode())
+    const double tick = ctx.engine.isPlaying() ? playheadTick() : -1.0;
+    if (tick < 0.0)
     {
         if (lastPlayheadX >= 0.0f)
         {
@@ -520,7 +609,6 @@ void PianoRoll::animationTick()
         return;
     }
 
-    const double tick = ctx.engine.getDisplayPositionTicks();
     followPlayhead (tick);
     const float x = (float) tickToX (tick);
     if (std::abs (x - lastPlayheadX) >= 0.5f)
@@ -536,7 +624,7 @@ void PianoRoll::animationTick()
 
 void PianoRoll::updateChordLabel()
 {
-    const double tick = ctx.engine.isPlaying() ? ctx.engine.getDisplayPositionTicks() : -1.0;
+    const double tick = ctx.engine.isPlaying() ? playheadTick() : -1.0;
     std::vector<int> keys;
 
     if (tick >= 0.0)
@@ -581,11 +669,27 @@ void PianoRoll::mouseMove (const juce::MouseEvent& e)
         newHover = yToKey (p.y);
 
         if (ctx.setHint)
-            ctx.setHint (theory::noteName (newHover) + "   Click to draw, right-click to delete, Ctrl+drag to select, Shift+drag to clone, Alt to bypass snap");
+            ctx.setHint (theory::noteName (newHover) + "   Click to draw, right-click to delete, Ctrl+drag to select, Shift+drag to clone, Alt+scroll on a note for velocity, double-click a ghost note to edit its channel");
     }
     else
     {
-        setMouseCursor (keysArea.contains (p.toInt()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        setMouseCursor (keysArea.contains (p.toInt()) || velocityArea.contains (p.toInt()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    }
+
+    juce::ValueTree stem;
+    if (velocityArea.contains (p.toInt()))
+    {
+        const auto targets = velocityTargetsAt (p.x);
+        if (! targets.empty())
+            stem = targets.front();
+        if (ctx.setHint)
+            ctx.setHint ("Drag a stem to set its velocity (chords move together), Ctrl+drag to paint across notes, Alt+scroll to fine tune");
+    }
+
+    if (stem != hoverStem)
+    {
+        hoverStem = stem;
+        repaint (velocityArea);
     }
 
     if (newHover != hoverKey)
@@ -597,10 +701,11 @@ void PianoRoll::mouseMove (const juce::MouseEvent& e)
 
 void PianoRoll::mouseExit (const juce::MouseEvent&)
 {
-    if (hoverKey != -1)
+    if (hoverKey != -1 || hoverStem.isValid())
     {
         hoverKey = -1;
-        repaint (gridArea);
+        hoverStem = {};
+        repaint();
     }
 }
 
@@ -622,7 +727,9 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     if (rulerArea.contains (p.toInt()))
     {
         drag = Drag::ruler;
-        ctx.engine.setPositionTicks (juce::jmax (0.0, dragStartTick));
+        const bool snapHead = prefs::snapPlayhead.get (ctx.settings) && ! e.mods.isAltDown();
+        const double tick = juce::jmax (0.0, snapHead ? (double) snap (dragStartTick, true) : dragStartTick);
+        ctx.engine.jumpTo (rulerTickToTransport (tick));
         repaint();
         return;
     }
@@ -639,7 +746,28 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     {
         drag = Drag::velocity;
         project.beginTransaction ("Change velocity");
-        applyVelocity (p);
+        velocityTargets.clear();
+        velocityOriginals.clear();
+
+        if (! e.mods.isCtrlDown())
+        {
+            auto targets = velocityTargetsAt (p.x);
+            const bool fromSelection = ! targets.empty() && selection.size() > 1 && selection.contains (targets.front());
+            if (fromSelection)
+            {
+                targets.clear();
+                for (auto& t : selection)
+                    targets.push_back (t);
+            }
+
+            velocityTargets = targets;
+            for (auto& t : velocityTargets)
+                velocityOriginals.push_back ((float) t.getProperty (id::velocity, 0.78f));
+            velocityGrabValue = fromSelection ? (float) velocityTargetsAt (p.x).front().getProperty (id::velocity, 0.78f) : -1.0f;
+        }
+
+        applyVelocity (p, e.mods.isCtrlDown());
+        repaint (velocityArea);
         return;
     }
 
@@ -648,6 +776,28 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
 
     bool rightEdge, leftEdge;
     auto hit = hitTest (p, rightEdge, leftEdge);
+
+    if (e.getNumberOfClicks() >= 2 && ! e.mods.isPopupMenu() && (! hit.isValid() || hit == lastAddedNote))
+    {
+        if (auto ghost = ghostAt (p); ghost.isValid())
+        {
+            if (hit.isValid() && hit == lastAddedNote)
+            {
+                selection.removeAllInstancesOf (hit);
+                pattern().removeChild (hit, project.um());
+            }
+
+            lastAddedNote = {};
+            const int uid = ghost[id::channel];
+            project.setSelectedChannel (uid);
+            setChannel (uid);
+            if (ctx.notify)
+                ctx.notify ("Now editing " + project.findChannel (uid)[id::name].toString(), false);
+            return;
+        }
+    }
+
+    lastAddedNote = {};
 
     if (e.mods.isPopupMenu())
     {
@@ -728,6 +878,7 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
         selection.clear();
         selection.add (added);
         anchor = added;
+        lastAddedNote = added;
         drag = Drag::move;
         preview (n.key);
     }
@@ -759,7 +910,8 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
             break;
 
         case Drag::velocity:
-            applyVelocity (p);
+            applyVelocity (p, e.mods.isCtrlDown() && velocityTargets.empty());
+            repaint (velocityArea);
             break;
 
         case Drag::erase:
@@ -855,8 +1007,24 @@ void PianoRoll::mouseUp (const juce::MouseEvent& e)
     drag = Drag::none;
     originals.clear();
     marqueeBase.clear();
+    velocityTargets.clear();
+    velocityOriginals.clear();
     updateChordLabel();
     repaint();
+}
+
+juce::ValueTree PianoRoll::ghostAt (juce::Point<float> p) const
+{
+    if (! ghosts)
+        return {};
+
+    for (int i = pattern().getNumChildren(); --i >= 0;)
+    {
+        auto n = pattern().getChild (i);
+        if ((int) n[id::channel] != channelUid && noteRect (Project::readNote (n)).contains (p))
+            return n;
+    }
+    return {};
 }
 
 void PianoRoll::mouseDoubleClick (const juce::MouseEvent& e)
@@ -877,21 +1045,136 @@ void PianoRoll::mouseDoubleClick (const juce::MouseEvent& e)
     }
 }
 
-void PianoRoll::applyVelocity (juce::Point<float> p)
+std::vector<juce::ValueTree> PianoRoll::velocityTargetsAt (float x) const
 {
-    const float v = juce::jlimit (0.02f, 1.0f, (float) (velocityArea.getBottom() - 8 - p.y) / (float) (velocityArea.getHeight() - 16));
-    const bool limitToSelection = ! selection.isEmpty();
-
+    float bestDistance = stemReach;
+    float bestX = 0.0f;
     for (auto& n : channelNotes())
     {
-        if (limitToSelection && ! selection.contains (n))
-            continue;
-
-        const float x = (float) tickToX ((double) (juce::int64) n[id::start]);
-        if (std::abs (x - p.x) <= 4.0f)
-            n.setProperty (id::velocity, v, project.um());
+        const float nx = (float) tickToX ((double) (juce::int64) n[id::start]);
+        const float d = std::abs (nx - x);
+        if (d < bestDistance || (d <= stemGrab && selection.contains (n) && d <= bestDistance + 1.0f))
+        {
+            bestDistance = d;
+            bestX = nx;
+        }
     }
+
+    std::vector<juce::ValueTree> result;
+    if (bestDistance >= stemReach)
+        return result;
+
+    for (auto& n : channelNotes())
+        if (std::abs ((float) tickToX ((double) (juce::int64) n[id::start]) - bestX) < 1.5f)
+            result.push_back (n);
+
+    std::stable_sort (result.begin(), result.end(), [this] (const juce::ValueTree& a, const juce::ValueTree& b)
+    {
+        return selection.contains (a) && ! selection.contains (b);
+    });
+    return result;
+}
+
+void PianoRoll::applyVelocity (juce::Point<float> p, bool paint)
+{
+    const float v = juce::jlimit (0.02f, 1.0f, (float) (velocityArea.getBottom() - 8 - p.y) / (float) (velocityArea.getHeight() - 16));
+
+    if (paint)
+    {
+        const bool limitToSelection = ! selection.isEmpty();
+        for (auto& n : channelNotes())
+        {
+            if (limitToSelection && ! selection.contains (n))
+                continue;
+
+            const float x = (float) tickToX ((double) (juce::int64) n[id::start]);
+            if (std::abs (x - p.x) <= 6.0f)
+                n.setProperty (id::velocity, v, project.um());
+        }
+        lastVelocity = v;
+        return;
+    }
+
+    if (velocityTargets.empty())
+        return;
+
+    if (velocityGrabValue > 0.0f)
+    {
+        const float delta = v - velocityGrabValue;
+        for (size_t i = 0; i < velocityTargets.size(); ++i)
+            velocityTargets[i].setProperty (id::velocity, juce::jlimit (0.02f, 1.0f, velocityOriginals[i] + delta), project.um());
+    }
+    else
+    {
+        for (auto& t : velocityTargets)
+            t.setProperty (id::velocity, v, project.um());
+    }
+
     lastVelocity = v;
+    if (ctx.setHint)
+        ctx.setHint ("Velocity " + juce::String (juce::roundToInt (v * 100.0f)) + "%");
+}
+
+void PianoRoll::nudgeVelocity (const std::vector<juce::ValueTree>& notes, float delta)
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (now - lastWheelEdit > 700.0)
+        project.beginTransaction ("Change velocity");
+    lastWheelEdit = now;
+
+    float shown = 0.0f;
+    for (auto n : notes)
+    {
+        shown = juce::jlimit (0.02f, 1.0f, (float) n.getProperty (id::velocity, 0.78f) + delta);
+        n.setProperty (id::velocity, shown, project.um());
+    }
+
+    lastVelocity = shown;
+    if (ctx.setHint)
+        ctx.setHint ("Velocity " + juce::String (juce::roundToInt (shown * 100.0f)) + "%" + (notes.size() > 1 ? "  (" + juce::String ((int) notes.size()) + " notes)" : juce::String()));
+}
+
+void PianoRoll::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    if (e.mods.isAltDown() && ! e.mods.isCtrlDown())
+    {
+        std::vector<juce::ValueTree> targets;
+        const auto p = e.position;
+
+        if (gridArea.contains (p.toInt()))
+        {
+            bool r, l;
+            auto hit = hitTest (p, r, l);
+            if (hit.isValid())
+            {
+                if (selection.contains (hit))
+                    for (auto& s : selection)
+                        targets.push_back (s);
+                else
+                    targets.push_back (hit);
+            }
+        }
+        else if (velocityArea.contains (p.toInt()))
+        {
+            targets = velocityTargetsAt (p.x);
+            if (! targets.empty() && selection.size() > 1 && selection.contains (targets.front()))
+            {
+                targets.clear();
+                for (auto& s : selection)
+                    targets.push_back (s);
+            }
+        }
+
+        if (! targets.empty())
+        {
+            const float raw = std::abs (wheel.deltaY) > std::abs (wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+            const float step = wheel.isSmooth ? raw * 0.25f : (raw > 0.0f ? 0.02f : -0.02f);
+            nudgeVelocity (targets, e.mods.isShiftDown() ? step * 0.25f : step);
+            return;
+        }
+    }
+
+    TimelineCanvas::mouseWheelMove (e, wheel);
 }
 
 void PianoRoll::eraseAt (juce::Point<float> p)

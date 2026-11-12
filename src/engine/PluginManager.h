@@ -18,6 +18,9 @@ public:
     void saveList() const;
 
     juce::Array<juce::PluginDescription> getPlugins (bool instruments) const;
+    static juce::Array<juce::PluginDescription> getBuiltinEffects();
+    static bool isUsableEffect (const juce::PluginDescription& description);
+    static bool isUsableInstrument (const juce::PluginDescription& description);
     std::optional<juce::PluginDescription> findByIdentifier (const juce::String& identifier) const;
 
     static juce::String toXmlString (const juce::PluginDescription& description);

@@ -1,6 +1,9 @@
 #include "ui/Playlist.h"
 #include "ui/Dialogs.h"
+#include "ui/AutomationEditor.h"
 #include "engine/AudioEngine.h"
+#include "app/Preferences.h"
+#include "model/Automation.h"
 
 namespace harmony::ui
 {
@@ -33,8 +36,9 @@ Playlist::Playlist (Context& c)
 
     for (auto& s : snapOptions())
         snapBox.addItem (s.name, snapBox.getNumItems() + 1);
-    snapBox.setSelectedItemIndex (1, juce::dontSendNotification);
-    snapIndex = 1;
+    snapIndex = prefs::playlistSnap.get (ctx.settings);
+    snapBox.setSelectedItemIndex (snapIndex, juce::dontSendNotification);
+    follow = prefs::followPlayhead.get (ctx.settings);
     snapBox.setTooltip ("Snap");
     snapBox.onChange = [this] { setSnapIndex (snapBox.getSelectedItemIndex()); };
     addAndMakeVisible (snapBox);
@@ -68,6 +72,49 @@ void Playlist::setTool (Tool t)
 {
     tool = t;
     refreshToolbar();
+}
+
+void Playlist::setFollowPlayhead (bool shouldFollow)
+{
+    follow = shouldFollow;
+    refreshToolbar();
+}
+
+double Playlist::rulerTick (const juce::MouseEvent& e, double rawTick) const
+{
+    const bool snapHead = prefs::snapPlayhead.get (ctx.settings) && ! e.mods.isAltDown();
+    return juce::jmax (0.0, snapHead ? (double) snap (rawTick, true) : rawTick);
+}
+
+juce::Rectangle<float> Playlist::clipBody (const juce::ValueTree& clip) const
+{
+    const auto r = clipRect (clip);
+    const float headerH = juce::jmin (16.0f, r.getHeight() * 0.36f);
+    return r.withTrimmedTop (headerH).reduced (3.0f, 3.0f);
+}
+
+int Playlist::automationPointAt (const juce::ValueTree& clip, juce::Point<float> p) const
+{
+    if (clip[id::kind].toString() != kind::automation)
+        return -1;
+
+    const auto body = clipBody (clip);
+    const auto points = automation::readPoints (clip);
+    const double origin = (double) (juce::int64) clip[id::start] - (double) (juce::int64) clip[id::offset];
+
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        const juce::Point<float> c ((float) tickToX (origin + points[i].time), body.getBottom() - points[i].value * body.getHeight());
+        if (c.getDistanceFrom (p) <= 7.0f && body.expanded (4.0f).contains (c))
+            return (int) i;
+    }
+    return -1;
+}
+
+void Playlist::openAutomation (const juce::ValueTree& clip)
+{
+    if (ctx.showPanel)
+        ctx.showPanel (createAutomationEditor (ctx, clip), "Automation");
 }
 
 void Playlist::refreshToolbar()
@@ -249,8 +296,9 @@ void Playlist::drawTracks (juce::Graphics& g) const
 void Playlist::drawClip (juce::Graphics& g, const juce::ValueTree& clip, juce::Rectangle<float> r, bool selected)
 {
     const bool isPattern = clip[id::kind].toString() == kind::pattern;
+    const bool isAutomation = clip[id::kind].toString() == kind::automation;
     const auto source = isPattern ? project.findPattern (clip[id::pattern]) : project.findChannel (clip[id::channel]);
-    auto colour = source.isValid() ? juce::Colour::fromString (source[id::colour].toString()) : colours::textFaint;
+    auto colour = isAutomation ? colours::lilac : source.isValid() ? juce::Colour::fromString (source[id::colour].toString()) : colours::textFaint;
     const bool muted = (bool) clip[id::muted] || (bool) clip.getParent()[id::mute];
 
     if (muted)
@@ -272,7 +320,8 @@ void Playlist::drawClip (juce::Graphics& g, const juce::ValueTree& clip, juce::R
     {
         g.setColour (colours::background.withAlpha (0.9f));
         g.setFont (font (juce::jmin (10.0f, headerH - 4.0f), Weight::semibold));
-        g.drawText (source.isValid() ? source[id::name].toString() : juce::String ("Missing"), header.reduced (6.0f, 0.0f), juce::Justification::centredLeft, true);
+        const auto title = isAutomation ? clip[id::name].toString() : source.isValid() ? source[id::name].toString() : juce::String ("Missing");
+        g.drawText (title, header.reduced (6.0f, 0.0f), juce::Justification::centredLeft, true);
     }
 
     auto body = r.withTrimmedTop (headerH).reduced (3.0f, 3.0f);
@@ -283,6 +332,40 @@ void Playlist::drawClip (juce::Graphics& g, const juce::ValueTree& clip, juce::R
     g.reduceClipRegion (body.toNearestInt().getIntersection (gridArea));
 
     const juce::int64 start = clip[id::start], length = clip[id::length], offset = clip[id::offset];
+
+    if (isAutomation)
+    {
+        const auto points = automation::readPoints (clip);
+        const double origin = (double) start - (double) offset;
+        juce::Path curve;
+        const int x0 = juce::jmax ((int) body.getX(), gridArea.getX());
+        const int x1 = juce::jmin ((int) body.getRight(), gridArea.getRight());
+        for (int x = x0; x <= x1; x += 2)
+        {
+            const float y = body.getBottom() - automation::valueAt (points, xToTick (x) - origin) * body.getHeight();
+            if (x == x0) curve.startNewSubPath ((float) x, y);
+            else         curve.lineTo ((float) x, y);
+        }
+
+        juce::Path fill (curve);
+        fill.lineTo ((float) x1, body.getBottom());
+        fill.lineTo ((float) x0, body.getBottom());
+        fill.closeSubPath();
+        g.setColour (colour.withAlpha (muted ? 0.08f : 0.18f));
+        g.fillPath (fill);
+        g.setColour (colour.withAlpha (muted ? 0.4f : 0.95f));
+        g.strokePath (curve, juce::PathStrokeType (1.5f));
+
+        for (auto& p : points)
+        {
+            const float x = (float) tickToX (origin + p.time);
+            if (x < body.getX() - 1.0f || x > body.getRight() + 1.0f)
+                continue;
+            const float y = body.getBottom() - p.value * body.getHeight();
+            g.fillEllipse (x - 3.0f, y - 3.0f, 6.0f, 6.0f);
+        }
+        return;
+    }
 
     if (isPattern && source.isValid())
     {
@@ -491,6 +574,14 @@ void Playlist::mouseMove (const juce::MouseEvent& e)
     {
         bool r, l;
         auto hit = hitTest (e.position, r, l);
+        if (hit.isValid() && automationPointAt (hit, e.position) >= 0)
+        {
+            setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+            if (ctx.setHint)
+                ctx.setHint ("Drag to move this automation point, right-click to delete it, double-click the clip for the full editor");
+            return;
+        }
+
         setMouseCursor (hit.isValid() && (r || l) ? juce::MouseCursor::LeftRightResizeCursor
                         : tool == Tool::slice ? juce::MouseCursor::IBeamCursor
                         : hit.isValid() ? juce::MouseCursor::DraggingHandCursor
@@ -531,7 +622,7 @@ void Playlist::mouseDown (const juce::MouseEvent& e)
         {
             drag = Drag::ruler;
             ctx.engine.setSongMode (true);
-            ctx.engine.setPositionTicks (juce::jmax (0.0, dragStartTick));
+            ctx.engine.jumpTo (rulerTick (e, dragStartTick));
         }
         return;
     }
@@ -558,6 +649,26 @@ void Playlist::mouseDown (const juce::MouseEvent& e)
 
     bool rightEdge, leftEdge;
     auto hit = hitTest (p, rightEdge, leftEdge);
+
+    if (const int point = hit.isValid() ? automationPointAt (hit, p) : -1; point >= 0)
+    {
+        auto points = automation::readPoints (hit);
+        project.beginTransaction ("Edit automation");
+        if (e.mods.isPopupMenu())
+        {
+            if (points.size() > 1)
+            {
+                points.erase (points.begin() + point);
+                automation::writePoints (hit, points, project.um());
+            }
+            return;
+        }
+
+        drag = Drag::automationPoint;
+        automationClip = hit;
+        automationPoint = point;
+        return;
+    }
 
     if (e.mods.isPopupMenu())
     {
@@ -659,9 +770,30 @@ void Playlist::mouseDrag (const juce::MouseEvent& e)
     switch (drag)
     {
         case Drag::ruler:
-            ctx.engine.setPositionTicks (juce::jmax (0.0, tick));
+            ctx.engine.jumpTo (rulerTick (e, tick));
             repaint();
             break;
+
+        case Drag::automationPoint:
+        {
+            auto points = automation::readPoints (automationClip);
+            if (! juce::isPositiveAndBelow (automationPoint, (int) points.size()))
+                break;
+
+            const auto body = clipBody (automationClip);
+            const double origin = (double) (juce::int64) automationClip[id::start] - (double) (juce::int64) automationClip[id::offset];
+            auto& point = points[(size_t) automationPoint];
+            const double minTime = automationPoint > 0 ? points[(size_t) automationPoint - 1].time : 0.0;
+            const double maxTime = automationPoint + 1 < (int) points.size() ? points[(size_t) automationPoint + 1].time
+                                                                              : (double) (juce::int64) automationClip[id::length] + (double) (juce::int64) automationClip[id::offset];
+            const double raw = tick - origin;
+            point.time = juce::jlimit (minTime, maxTime, free ? raw : (double) snap (raw + origin, true) - origin);
+            point.value = juce::jlimit (0.0f, 1.0f, (body.getBottom() - p.y) / juce::jmax (1.0f, body.getHeight()));
+            automation::writePoints (automationClip, points, project.um());
+            if (ctx.setHint)
+                ctx.setHint (automationTargetName (ctx, automationClip) + "   " + juce::String (juce::roundToInt (point.value * 100.0f)) + "%");
+            break;
+        }
 
         case Drag::loop:
         {
@@ -761,6 +893,8 @@ void Playlist::mouseUp (const juce::MouseEvent& e)
     endPan (e);
     drag = Drag::none;
     originals.clear();
+    automationClip = {};
+    automationPoint = -1;
     repaint();
 }
 
@@ -792,6 +926,12 @@ void Playlist::mouseDoubleClick (const juce::MouseEvent& e)
 
     bool r, l;
     auto hit = hitTest (p, r, l);
+    if (hit.isValid() && hit[id::kind].toString() == kind::automation)
+    {
+        openAutomation (hit);
+        return;
+    }
+
     if (hit.isValid() && hit[id::kind].toString() == kind::pattern)
     {
         project.setCurrentPattern (hit[id::pattern]);
@@ -862,6 +1002,17 @@ void Playlist::showClipMenu (juce::ValueTree clip)
         project.beginTransaction ("Mute clip");
         clip.setProperty (id::muted, ! (bool) clip[id::muted], project.um());
     });
+    if (clip[id::kind].toString() == kind::automation)
+    {
+        menu.addItem ("Edit automation...", [this, clip] { openAutomation (clip); });
+        menu.addItem ("Flatten to current value", [this, clip] () mutable
+        {
+            const auto target = automation::parse (clip[id::target].toString());
+            const float v = target.controlsGain() ? automation::currentNormalisedValue (project, target) : automation::readPoints (clip).front().value;
+            project.beginTransaction ("Flatten automation");
+            automation::writePoints (clip, { { 0.0, v, 0.0f }, { (double) (juce::int64) clip[id::length], v, 0.0f } }, project.um());
+        });
+    }
     if (clip[id::kind].toString() == kind::pattern)
         menu.addItem ("Make unique", [this, clip] () mutable
         {
@@ -1009,13 +1160,29 @@ bool Playlist::keyPressed (const juce::KeyPress& key)
 bool Playlist::isInterestedInDragSource (const SourceDetails& details)
 {
     const auto d = details.description.toString();
-    return d.startsWith ("file:") || d.startsWith ("plugin:");
+    return d.startsWith ("file:") || d.startsWith ("plugin:") || d.startsWith ("pattern:");
 }
 
 void Playlist::itemDropped (const SourceDetails& details)
 {
     const auto d = details.description.toString();
     const auto p = details.localPosition.toFloat();
+
+    if (d.startsWith ("pattern:"))
+    {
+        const auto pattern = project.findPattern (d.fromFirstOccurrenceOf ("pattern:", false, false).getIntValue());
+        auto track = project.tracksTree().getChild (trackAtY (p.y));
+        if (pattern.isValid() && track.isValid() && gridArea.contains (p.toInt()))
+        {
+            project.beginTransaction ("Add clip");
+            auto clip = project.addClip (track, kind::pattern, pattern[id::uid], snap (xToTick (p.x)), project.patternLength (pattern));
+            project.setCurrentPattern (pattern[id::uid]);
+            selection.clear();
+            selection.add (clip);
+            grabKeyboardFocus();
+        }
+        return;
+    }
 
     if (d.startsWith ("file:"))
     {

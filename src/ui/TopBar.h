@@ -32,6 +32,7 @@ private:
     IconButton recordButton { "Record (R)", icons::record(), true };
     IconButton metronomeButton { "Metronome (Ctrl+M)", icons::metronome() };
     IconButton paletteButton { "Command palette (Ctrl+K)", icons::search() };
+    IconButton settingsButton { "Settings (Ctrl+,)", icons::gear() };
     IconButton updateButton { "Update ready: restart to install", icons::download() };
     NumberBox bpmBox { 10.0, 999.0, 0.01, 2 };
     LevelMeter masterMeter { false };

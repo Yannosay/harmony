@@ -209,11 +209,14 @@ void Project::removeChannel (int uid)
             if ((int) pattern.getChild (i)[id::channel] == uid)
                 pattern.removeChild (i, &undo);
 
+    const auto automationPrefix = "ch:" + juce::String (uid) + ":";
     for (auto track : tracksTree())
         for (int i = track.getNumChildren(); --i >= 0;)
         {
             auto clip = track.getChild (i);
-            if (clip[id::kind].toString() == kind::audio && (int) clip[id::channel] == uid)
+            const auto clipKind = clip[id::kind].toString();
+            if ((clipKind == kind::audio && (int) clip[id::channel] == uid)
+                || (clipKind == kind::automation && clip[id::target].toString().startsWith (automationPrefix)))
                 track.removeChild (i, &undo);
         }
 
@@ -360,6 +363,37 @@ juce::int64 Project::songLength() const
             end = juce::jmax (end, (juce::int64) clip[id::start] + (juce::int64) clip[id::length]);
 
     return end;
+}
+
+juce::ValueTree Project::findPatternClipAt (int patternUid, double songTick) const
+{
+    for (auto track : tracksTree())
+    {
+        if ((bool) track[id::mute])
+            continue;
+
+        for (auto clip : track)
+        {
+            if (clip[id::kind].toString() != kind::pattern || (int) clip[id::pattern] != patternUid || (bool) clip[id::muted])
+                continue;
+
+            const double start = (double) (juce::int64) clip[id::start];
+            if (songTick >= start && songTick < start + (double) (juce::int64) clip[id::length])
+                return clip;
+        }
+    }
+    return {};
+}
+
+std::optional<double> Project::patternPositionAt (int patternUid, double songTick) const
+{
+    const auto clip = findPatternClipAt (patternUid, songTick);
+    if (! clip.isValid())
+        return std::nullopt;
+
+    const double length = (double) juce::jmax ((juce::int64) 1, patternLength (findPattern (patternUid)));
+    const double local = songTick - (double) (juce::int64) clip[id::start] + (double) (juce::int64) clip[id::offset];
+    return std::fmod (local, length);
 }
 
 juce::ValueTree Project::addSlot (int insertIndex, int slotIndex, const juce::String& pluginDescXml)

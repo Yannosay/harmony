@@ -6,10 +6,13 @@ const features = [
   { icon: 'piano', title: 'A piano roll that keeps up', text: 'Ghost notes, scale highlighting and scale lock, velocity lane, slicing, live chord detection and inertial zoom.' },
   { icon: 'wand', title: 'Chord generator', text: 'Fifteen progressions in any key, smooth voice leading, bass lines, strums and arpeggios. One click into the piano roll.' },
   { icon: 'drum', title: 'Drum generator', text: 'Trap, drill, house, techno, drum & bass and more, mapped to your own kick, snare and hat channels by name.' },
-  { icon: 'mixer', title: 'Mixer with delay compensation', text: '24 inserts and a master, ten effect slots each, solo, mute, meters and automatic plugin delay compensation.' },
+  { icon: 'mixer', title: 'Mixer with delay compensation', text: '24 inserts and a master, ten effect slots each. Drag effects onto any strip. Solo, mute, meters and automatic delay compensation.' },
+  { icon: 'sparkle', title: 'Eleven built-in effects', text: 'EQ with a live curve, filter, compressor, look-ahead limiter, gate, saturator, reverb, tempo-synced delay, chorus, phaser and utility.' },
+  { icon: 'automation', title: 'Automation clips', text: 'Automate volume, pan and any plugin parameter. Right-click a knob, draw points and bend curves right in the playlist.' },
   { icon: 'wave', title: 'SoundFonts and samples', text: 'Drop an SF2 and browse its presets, or a sample for a pitched sampler. Audio clips go straight onto the playlist.' },
   { icon: 'download', title: 'Render your way', text: 'WAV up to 32-bit float, FLAC, OGG and AIFF. Stems per insert, normalise, dither, and render in the background.' },
   { icon: 'history', title: 'Time machine', text: 'Harmony keeps versions of your project as you work. Jump back to any of them, even after a crash.' },
+  { icon: 'bolt', title: 'Fast to learn', text: 'Every pattern in the pattern bar, SoundFont presets right on the channel, hints for every control and settings to make it yours.' },
   { icon: 'search', title: 'Command palette', text: 'Press Ctrl+K and type. Every action in Harmony is two keystrokes away, with the shortcut shown next to it.' }
 ];
 </script>
@@ -20,8 +23,8 @@ const features = [
       <span class="eyebrow" v-reveal>Why Harmony</span>
       <h2 class="section-title" v-reveal="80">Everything a producer needs.<br />Nothing in the way.</h2>
       <p class="section-lead" v-reveal="160">
-        Harmony comes with no built-in instruments, on purpose. It is a host built to make your own plugins and sounds feel
-        faster than ever, written in native C++ for low latency and low CPU.
+        Harmony comes with no built-in instruments, on purpose, and eleven studio effects that are. It is a host built to make
+        your own plugins and sounds feel faster than ever, written in native C++ for low latency and low CPU.
       </p>
       <div class="grid">
         <article v-for="(f, i) in features" :key="f.title" class="feature card" v-reveal="(i % 3) * 90">

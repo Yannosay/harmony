@@ -78,6 +78,23 @@ public:
             expectEquals ((juce::int64) p.songLength(), (juce::int64) ppq * 24);
         }
 
+        beginTest ("Song positions map back into pattern positions through clips");
+        {
+            Project p;
+            auto pattern = p.currentPattern();
+            const auto bar = p.ticksPerBar();
+            auto clip = p.addClip (p.tracksTree().getChild (2), kind::pattern, pattern[id::uid], bar * 4, bar * 3);
+            clip.setProperty (id::offset, ppq, nullptr);
+
+            expect (! p.patternPositionAt (pattern[id::uid], (double) bar * 2).has_value(), "no clip before bar 5");
+            expectWithinAbsoluteError (*p.patternPositionAt (pattern[id::uid], (double) bar * 4), (double) ppq, 1.0e-9);
+            expectWithinAbsoluteError (*p.patternPositionAt (pattern[id::uid], (double) bar * 5 + ppq), (double) ppq * 2, 1.0e-9);
+            expect (! p.patternPositionAt (pattern[id::uid], (double) bar * 7).has_value(), "clip ends after three bars");
+
+            clip.setProperty (id::muted, true, nullptr);
+            expect (! p.patternPositionAt (pattern[id::uid], (double) bar * 4).has_value(), "muted clips do not play");
+        }
+
         beginTest ("Removing a pattern removes its clips but keeps the last pattern");
         {
             Project p;

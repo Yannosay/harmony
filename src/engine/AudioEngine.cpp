@@ -14,6 +14,22 @@ void sortEvents (std::vector<MidiEvent>& events)
     });
 }
 
+bool AutomationLane::valueAt (double tick, float& value) const noexcept
+{
+    if (segments.empty() || tick < (double) segments.front().start)
+        return false;
+
+    const auto next = std::upper_bound (segments.begin(), segments.end(), tick,
+                                        [] (double t, const AutomationSegment& s) { return t < (double) s.start; });
+    const auto& segment = *(next - 1);
+    if (segment.points.empty())
+        return false;
+
+    const double local = juce::jmin (tick, (double) segment.end) - (double) segment.start + (double) segment.offset;
+    value = automation::valueAt (segment.points, local);
+    return true;
+}
+
 namespace
 {
     juce::AudioBuffer<float> makeClick (double sampleRate, double frequency, float level)
@@ -129,12 +145,12 @@ void AudioEngine::play()
     playing = true;
 }
 
-void AudioEngine::stop()
+void AudioEngine::stop (bool returnToStart)
 {
     if (playing.exchange (false))
     {
         stopPending = true;
-        setPositionTicks (playStartTick);
+        setPositionTicks (returnToStart ? playStartTick : getDisplayPositionTicks());
     }
     else
     {
@@ -147,7 +163,7 @@ void AudioEngine::stop()
 void AudioEngine::togglePlay()
 {
     if (playing.load())
-        stop();
+        stop (true);
     else
         play();
 }
@@ -171,6 +187,41 @@ double AudioEngine::getDisplayPositionTicks() const noexcept
 
     const double elapsed = juce::jlimit (0.0, maxExtrapolationMs.load(), juce::Time::getMillisecondCounterHiRes() - positionStampMs.load());
     return pos + elapsed * ticksPerMs.load();
+}
+
+void AudioEngine::jumpTo (double ticks)
+{
+    setPositionTicks (ticks);
+    playStartTick = juce::jmax (0.0, ticks);
+}
+
+void AudioEngine::clearAutomation()
+{
+    for (auto& [uid, node] : channelNodes)
+        node->gain.clearAutomation();
+    for (auto& insert : inserts)
+        insert->gain.clearAutomation();
+}
+
+void AudioEngine::clearUntargetedAutomation()
+{
+    std::vector<const StereoGainStage*> volumes, pans;
+    if (published != nullptr)
+        for (auto& lane : published->automation)
+            (lane.mode == AutomationLane::Mode::volume ? volumes : pans).push_back (lane.gain);
+
+    auto clear = [&volumes, &pans] (StereoGainStage& stage)
+    {
+        if (std::find (volumes.begin(), volumes.end(), &stage) == volumes.end())
+            stage.automatedVolume.store (-1.0f, std::memory_order_relaxed);
+        if (std::find (pans.begin(), pans.end(), &stage) == pans.end())
+            stage.automatedPan.store (-2.0f, std::memory_order_relaxed);
+    };
+
+    for (auto& [uid, node] : channelNodes)
+        clear (node->gain);
+    for (auto& insert : inserts)
+        clear (insert->gain);
 }
 
 void AudioEngine::setSongMode (bool shouldUseSong)
@@ -220,6 +271,7 @@ void AudioEngine::collectGarbage (bool force)
 void AudioEngine::timerCallback()
 {
     collectGarbage (false);
+    clearUntargetedAutomation();
 }
 
 void AudioEngine::publish (std::unique_ptr<Snapshot> snapshot)
@@ -242,6 +294,8 @@ void AudioEngine::publish (std::unique_ptr<Snapshot> snapshot)
 void AudioEngine::addChannelNode (std::unique_ptr<ChannelNode> node)
 {
     jassert (node != nullptr);
+    if (auto* plugin = node->getPlugin())
+        plugin->setPlayHead (&playHead);
     node->prepare (sampleRate, blockSize);
     node->setNonRealtime (offline.load());
     const int uid = node->uid;
@@ -282,6 +336,7 @@ std::vector<int> AudioEngine::getChannelNodeIds() const
 void AudioEngine::addSlotNode (std::unique_ptr<FxSlotNode> node)
 {
     jassert (node != nullptr);
+    node->getPlugin()->setPlayHead (&playHead);
     node->prepare (sampleRate, blockSize);
     node->getPlugin()->setNonRealtime (offline.load());
     const int uid = node->uid;
@@ -373,6 +428,8 @@ void AudioEngine::prepareAll (double newSampleRate, int newBlockSize)
     for (auto& insert : inserts)            insert->prepare (sampleRate, blockSize);
 
     chunkBuffer.setSize (2, blockSize, false, true, true);
+    directBuffer.setSize (2, blockSize, false, true, true);
+    directCompensator.prepare ((int) (sampleRate * 2.0), blockSize);
     previewBuffer.setSize (2, blockSize, false, true, true);
     liveCollector.reset (sampleRate);
     previewTransport.prepareToPlay (blockSize, sampleRate);
@@ -481,6 +538,7 @@ void AudioEngine::mixDown (const Snapshot& snap, int numSamples)
 {
     for (auto& insert : inserts)
         insert->clear (numSamples);
+    directBuffer.clear (0, numSamples);
 
     bool anyChannelSolo = false;
     for (auto& plan : snap.channels)
@@ -496,8 +554,8 @@ void AudioEngine::mixDown (const Snapshot& snap, int numSamples)
         plan.node->gain.silencedBySolo.store (anyChannelSolo && ! plan.node->solo.load (std::memory_order_relaxed), std::memory_order_relaxed);
         plan.node->process (numSamples);
 
-        auto* target = getInsertNode (plan.insert);
-        auto& dest = (target != nullptr ? target : master)->getBuffer();
+        auto* target = plan.insert > 0 ? getInsertNode (plan.insert) : nullptr;
+        auto& dest = target != nullptr ? target->getBuffer() : directBuffer;
         auto& src = plan.node->getOutput();
         dest.addFrom (0, 0, src, 0, 0, numSamples);
         dest.addFrom (1, 0, src, 1, 0, numSamples);
@@ -543,6 +601,10 @@ void AudioEngine::mixDown (const Snapshot& snap, int numSamples)
         master->getBuffer().addFrom (1, 0, buffer, 1, 0, numSamples);
     }
 
+    directCompensator.process (directBuffer, numSamples, maxLatency);
+    master->getBuffer().addFrom (0, 0, directBuffer, 0, 0, numSamples);
+    master->getBuffer().addFrom (1, 0, directBuffer, 1, 0, numSamples);
+
     for (auto& plan : snap.inserts)
         if (plan.index == 0)
             for (auto* slot : plan.slots)
@@ -554,6 +616,48 @@ void AudioEngine::mixDown (const Snapshot& snap, int numSamples)
     master->meter.push (master->getBuffer(), numSamples);
 }
 
+void AudioEngine::applyAutomation (const Snapshot& snap, double tick) noexcept
+{
+    for (auto& lane : snap.automation)
+    {
+        float v = 0.0f;
+        if (! lane.valueAt (tick, v))
+            continue;
+
+        switch (lane.mode)
+        {
+            case AutomationLane::Mode::volume:
+                if (lane.gain != nullptr)
+                    lane.gain->automatedVolume.store (automation::faderFromNormalised (v), std::memory_order_relaxed);
+                break;
+            case AutomationLane::Mode::pan:
+                if (lane.gain != nullptr)
+                    lane.gain->automatedPan.store (automation::panFromNormalised (v), std::memory_order_relaxed);
+                break;
+            case AutomationLane::Mode::parameter:
+                if (lane.parameter != nullptr && std::abs (lane.parameter->getValue() - v) > 1.0e-4f)
+                    lane.parameter->setValue (v);
+                break;
+        }
+    }
+}
+
+void AudioEngine::updatePlayHead (const Snapshot& snap, double tick, bool isPlaying, double samplesPerTick, bool looping)
+{
+    auto& info = playHead.info;
+    const double barTicks = (double) juce::jmax ((juce::int64) 1, snap.ticksPerBar);
+    info.setBpm (snap.bpm);
+    info.setTimeSignature (juce::AudioPlayHead::TimeSignature { snap.numerator, snap.denominator });
+    info.setPpqPosition (tick / ppq);
+    info.setPpqPositionOfLastBarStart (std::floor (tick / barTicks) * barTicks / ppq);
+    info.setBarCount ((juce::int64) (tick / barTicks));
+    info.setTimeInSamples ((juce::int64) (tick * samplesPerTick));
+    info.setTimeInSeconds (tick * samplesPerTick / sampleRate);
+    info.setIsPlaying (isPlaying);
+    info.setIsRecording (isPlaying && recording.load (std::memory_order_relaxed));
+    info.setIsLooping (looping);
+}
+
 void AudioEngine::addMetronome (juce::AudioBuffer<float>& out, int numSamples)
 {
     auto renderTail = [this, &out] (int start, int count)
@@ -563,8 +667,9 @@ void AudioEngine::addMetronome (juce::AudioBuffer<float>& out, int numSamples)
 
         auto& click = clickIsHigh ? clickHigh : clickLow;
         const int n = juce::jmin (count, click.getNumSamples() - clickPosition);
-        out.addFrom (0, start, click, 0, clickPosition, n);
-        out.addFrom (1, start, click, 0, clickPosition, n);
+        const float level = metronomeLevel.load (std::memory_order_relaxed) / 0.7f;
+        out.addFrom (0, start, click, 0, clickPosition, n, level);
+        out.addFrom (1, start, click, 0, clickPosition, n, level);
         clickPosition += n;
 
         if (clickPosition >= click.getNumSamples())
@@ -683,6 +788,7 @@ void AudioEngine::processChunk (const Snapshot& snap, juce::AudioBuffer<float>& 
             loopEnd = snap.patterns[(size_t) patternIndex].length;
 
         loopEnd = juce::jmax (loopStart + 1, loopEnd);
+        updatePlayHead (snap, pos, true, samplesPerTick, ! offline.load());
 
         int offset = 0;
         while (offset < numSamples)
@@ -697,6 +803,9 @@ void AudioEngine::processChunk (const Snapshot& snap, juce::AudioBuffer<float>& 
             const int remaining = numSamples - offset;
             const int n = samplesLeft >= (double) remaining ? remaining : juce::jlimit (1, remaining, (int) std::ceil (samplesLeft));
             const double end = juce::jmin ((double) loopEnd, pos + n * ticksPerSample);
+
+            if (song)
+                applyAutomation (snap, pos);
 
             schedule (snap, song, patternIndex, pos, end, offset, samplesPerTick, numSamples);
             pos = end;
@@ -719,6 +828,10 @@ void AudioEngine::processChunk (const Snapshot& snap, juce::AudioBuffer<float>& 
                 positionStampMs.store (juce::Time::getMillisecondCounterHiRes());
             }
         }
+    }
+    else
+    {
+        updatePlayHead (snap, pos, false, samplesPerTick, false);
     }
 
     mixDown (snap, numSamples);

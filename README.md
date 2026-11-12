@@ -14,17 +14,26 @@
 
 ## What it is
 
-Harmony is a native C++20 DAW built on JUCE 8. It ships with **no built-in instruments or
-effects**: it is a host. Bring your own VST, VST3, LV2 plugins, SoundFonts and samples.
+Harmony is a native C++20 DAW built on JUCE 8. It ships with **no built-in instruments**: bring
+your own VST, VST3 and LV2 plugins, SoundFonts and samples. It does ship eleven studio effects.
 
 - **Plugin hosting**: VST3, VST 2.x and LV2 instruments and effects, with out-of-process
   scanning so a crashing plugin can never take the DAW down, automatic plugin delay
   compensation, and plugin state saved with your project.
-- **SoundFonts**: load any `.sf2` as a channel and browse its presets.
+- **SoundFonts**: load any `.sf2` as a channel and pick presets right from the channel rack.
 - **Sampler**: one-shot or pitched sample playback with high-quality interpolation.
 - **Channel rack and step sequencer**, **pattern and song modes**, **playlist** with pattern
   and audio clips, **piano roll** with ghost notes, scale highlighting and scale lock.
 - **Mixer** with 24 inserts plus master, 10 effect slots each, mute, solo, pan and meters.
+  Drag any effect from the browser onto a strip, including the master.
+- **Built-in effects**: EQ with a live response curve, filter, compressor, look-ahead limiter,
+  gate, oversampled saturator, reverb, tempo-synced delay, chorus, phaser and utility.
+- **Automation clips** for channel and insert volume and pan, and any plugin parameter.
+  Right-click a knob or fader, or use Automate in any plugin window. Points and curves are
+  edited right in the playlist or in the automation editor.
+- **Pattern bar**: every pattern one click away, drag patterns straight into the playlist.
+- **Settings** for interface size, note previews, snapping, playhead behaviour, new project
+  defaults, metronome level, audio devices and plugin folders.
 - **Chord generator** with 15 progressions, smooth voice leading and arpeggio rhythms.
 - **Drum generator** for 11 styles (trap, drill, house, techno, drum & bass and more).
 - **Rendering** to WAV (16/24/32-bit float), FLAC, OGG Vorbis and AIFF, with stems,
@@ -32,9 +41,12 @@ effects**: it is a host. Bring your own VST, VST3, LV2 plugins, SoundFonts and s
 - **Time machine**: automatic project snapshots you can open at any time, plus crash recovery.
 - **Command palette** (`Ctrl+K`) for every action, FL-style shortcuts, smooth inertial
   scrolling and zooming everywhere.
-- **Automatic updates** from GitHub Releases, verified with SHA-256 before installing.
+- **Automatic updates** from the website and GitHub Releases, verified with SHA-256 before installing.
+- Plugins receive the project tempo, time signature and transport position.
 
 ![Piano roll](docs/harmony-pianoroll.png)
+
+![Mixer with built-in effects on the master](docs/harmony-mixer.png)
 
 ## Shortcuts
 
@@ -49,6 +61,8 @@ effects**: it is a host. Bring your own VST, VST3, LV2 plugins, SoundFonts and s
 | Draw, select, slice, mute tools | `P`, `E`, `C`, `T` |
 | Duplicate, quantize, humanize | `Ctrl+B` or `Ctrl+D`, `Ctrl+Q`, `Alt+H` |
 | Zoom, scroll, vertical zoom | `Ctrl+wheel`, `wheel` / `Shift+wheel`, `Alt+wheel` |
+| Note velocity | `Alt+wheel` over a note or velocity stem (`Shift` for fine steps) |
+| Settings | `Ctrl+,` |
 | Time machine | `Ctrl+H` |
 
 Press `F1` in Harmony for the complete list.

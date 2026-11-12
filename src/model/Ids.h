@@ -18,6 +18,7 @@ HARMONY_ID (CLIP)
 HARMONY_ID (MIXER)
 HARMONY_ID (INSERT)
 HARMONY_ID (SLOT)
+HARMONY_ID (POINT)
 
 HARMONY_ID (formatVersion)
 HARMONY_ID (appVersion)
@@ -65,6 +66,10 @@ HARMONY_ID (muted)
 HARMONY_ID (pattern)
 HARMONY_ID (offset)
 HARMONY_ID (gain)
+HARMONY_ID (target)
+HARMONY_ID (time)
+HARMONY_ID (value)
+HARMONY_ID (tension)
 
 #undef HARMONY_ID
 }
@@ -85,5 +90,6 @@ namespace kind
     inline const juce::String sampler { "sampler" };
     inline const juce::String audio { "audio" };
     inline const juce::String pattern { "pattern" };
+    inline const juce::String automation { "automation" };
 }
 }

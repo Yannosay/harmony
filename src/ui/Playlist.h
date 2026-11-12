@@ -25,6 +25,7 @@ public:
     void editDuplicate() override;
     void editToggleMute() override;
     void setTool (Tool) override;
+    void setFollowPlayhead (bool shouldFollow);
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -41,7 +42,7 @@ public:
     void filesDropped (const juce::StringArray&, int x, int y) override;
 
 private:
-    enum class Drag { none, move, resizeRight, resizeLeft, marquee, erase, ruler, loop };
+    enum class Drag { none, move, resizeRight, resizeLeft, marquee, erase, ruler, loop, automationPoint };
 
     struct Original
     {
@@ -70,6 +71,10 @@ private:
     void sliceAt (const juce::ValueTree& clip, juce::int64 tick);
     void showTrackMenu (int trackIndex);
     void showClipMenu (juce::ValueTree clip);
+    void openAutomation (const juce::ValueTree& clip);
+    juce::Rectangle<float> clipBody (const juce::ValueTree& clip) const;
+    int automationPointAt (const juce::ValueTree& clip, juce::Point<float> p) const;
+    double rulerTick (const juce::MouseEvent& e, double rawTick) const;
     void refreshToolbar();
     const std::vector<std::pair<float, float>>& peaksFor (const engine::SampleData& sample);
 
@@ -88,6 +93,8 @@ private:
     int dragStartTrack = 0;
     juce::Rectangle<float> marquee;
     juce::int64 loopAnchor = 0;
+    juce::ValueTree automationClip;
+    int automationPoint = -1;
     float lastPlayheadX = -1.0f;
 
     juce::Rectangle<int> toolbarArea, rulerArea, headerArea, gridArea;

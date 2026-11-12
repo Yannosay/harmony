@@ -65,8 +65,21 @@ public:
         right.applyGain (buffer.getWritePointer (1), numSamples);
     }
 
+    void clearAutomation() noexcept
+    {
+        automatedVolume.store (-1.0f, std::memory_order_relaxed);
+        automatedPan.store (-2.0f, std::memory_order_relaxed);
+    }
+
+    bool isAutomated() const noexcept
+    {
+        return automatedVolume.load (std::memory_order_relaxed) >= 0.0f || automatedPan.load (std::memory_order_relaxed) >= -1.0f;
+    }
+
     std::atomic<float> volume { 0.78f };
     std::atomic<float> pan { 0.0f };
+    std::atomic<float> automatedVolume { -1.0f };
+    std::atomic<float> automatedPan { -2.0f };
     std::atomic<bool> muted { false };
     std::atomic<bool> silencedBySolo { false };
 
@@ -76,9 +89,11 @@ private:
         if (muted.load (std::memory_order_relaxed) || silencedBySolo.load (std::memory_order_relaxed))
             return 0.0f;
 
+        const float autoVolume = automatedVolume.load (std::memory_order_relaxed);
+        const float autoPan = automatedPan.load (std::memory_order_relaxed);
         float l, r;
-        panGains (pan.load (std::memory_order_relaxed), l, r);
-        return faderToGain (volume.load (std::memory_order_relaxed)) * (isLeft ? l : r);
+        panGains (autoPan >= -1.0f ? autoPan : pan.load (std::memory_order_relaxed), l, r);
+        return faderToGain (autoVolume >= 0.0f ? autoVolume : volume.load (std::memory_order_relaxed)) * (isLeft ? l : r);
     }
 
     juce::SmoothedValue<float> left, right;

@@ -4,10 +4,135 @@
 
 namespace harmony::ui
 {
+namespace
+{
+    class PluginFrame final : public juce::Component,
+                              private juce::ComponentListener,
+                              private juce::AudioProcessorListener
+    {
+    public:
+        PluginFrame (Context& c, juce::AudioPluginInstance& p, juce::AudioProcessorEditor* e)
+            : ctx (c), plugin (p), editor (e)
+        {
+            addAndMakeVisible (automateButton);
+            automateButton.setTooltip ("Create an automation clip for a parameter of this plugin");
+            automateButton.onClick = [this] { showAutomationMenu(); };
+            keepFocusOnEditors ({ &automateButton });
+
+            addAndMakeVisible (*editor);
+            editor->addComponentListener (this);
+            plugin.addListener (this);
+            setSize (juce::jmax (minimumWidth, editor->getWidth()), editor->getHeight() + barHeight);
+        }
+
+        ~PluginFrame() override
+        {
+            plugin.removeListener (this);
+            editor->removeComponentListener (this);
+        }
+
+        bool isResizable() const { return editor->isResizable(); }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto bar = getLocalBounds().removeFromTop (barHeight);
+            g.setColour (colours::raised);
+            g.fillRect (bar);
+            g.setColour (colours::line);
+            g.fillRect (bar.removeFromBottom (1));
+
+            g.setColour (colours::textDim);
+            g.setFont (font (10.0f));
+            const auto text = lastTouched >= 0 ? "Last touched: " + parameterName (lastTouched) : juce::String ("Move a control, then press Automate");
+            g.drawText (text, bar.reduced (12, 0).withTrimmedRight (automateButton.getWidth() + 12), juce::Justification::centredLeft, true);
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            auto bar = r.removeFromTop (barHeight);
+            automateButton.setBounds (bar.removeFromRight (120).reduced (6, 5));
+
+            const juce::ScopedValueSetter<bool> svs (layingOut, true);
+            if (editor->isResizable())
+                editor->setBounds (r);
+            else
+                editor->setTopLeftPosition (r.getX() + (r.getWidth() - editor->getWidth()) / 2, r.getY());
+        }
+
+    private:
+        static constexpr int barHeight = 34;
+        static constexpr int minimumWidth = 360;
+
+        juce::String parameterName (int index) const
+        {
+            const auto& params = plugin.getParameters();
+            return juce::isPositiveAndBelow (index, params.size()) ? params[index]->getName (48) : juce::String();
+        }
+
+        void showAutomationMenu()
+        {
+            juce::PopupMenu menu;
+            if (lastTouched >= 0)
+            {
+                menu.addItem ("Automate " + parameterName (lastTouched), [this, index = lastTouched] { automate (index); });
+                menu.addSeparator();
+            }
+
+            const auto& params = plugin.getParameters();
+            juce::PopupMenu all;
+            const int limit = juce::jmin (params.size(), 512);
+            for (int i = 0; i < limit; ++i)
+                if (params[i]->isAutomatable())
+                    all.addItem (params[i]->getName (48), [this, i] { automate (i); });
+
+            menu.addSubMenu ("All parameters", all, limit > 0);
+            if (limit == 0)
+                menu.addItem ("This plugin exposes no parameters", false, false, nullptr);
+
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (automateButton));
+        }
+
+        void automate (int index)
+        {
+            if (ctx.automateParameter)
+                ctx.automateParameter (plugin, index);
+        }
+
+        void componentMovedOrResized (juce::Component&, bool, bool wasResized) override
+        {
+            if (wasResized && ! layingOut)
+                setSize (juce::jmax (minimumWidth, editor->getWidth()), editor->getHeight() + barHeight);
+        }
+
+        void audioProcessorParameterChanged (juce::AudioProcessor*, int, float) override {}
+        void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override {}
+
+        void audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int index) override
+        {
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<PluginFrame> (this), index]
+            {
+                if (safe != nullptr && safe->lastTouched != index)
+                {
+                    safe->lastTouched = index;
+                    safe->repaint();
+                }
+            });
+        }
+
+        Context& ctx;
+        juce::AudioPluginInstance& plugin;
+        std::unique_ptr<juce::AudioProcessorEditor> editor;
+        juce::TextButton automateButton { "Automate" };
+        int lastTouched = -1;
+        bool layingOut = false;
+    };
+}
+
 class WindowManager::PluginWindow final : public juce::DocumentWindow
 {
 public:
-    PluginWindow (const juce::String& title, juce::AudioPluginInstance& p, std::function<void()> closed)
+    PluginWindow (Context& ctx, const juce::String& title, juce::AudioPluginInstance& p, std::function<void()> closed)
         : juce::DocumentWindow (title, colours::panel, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           plugin (p), onClosed (std::move (closed))
     {
@@ -18,8 +143,9 @@ public:
         if (editor == nullptr)
             editor = new juce::GenericAudioProcessorEditor (plugin);
 
-        setContentOwned (editor, true);
-        setResizable (editor->isResizable(), false);
+        auto* frame = new PluginFrame (ctx, plugin, editor);
+        setContentOwned (frame, true);
+        setResizable (frame->isResizable(), false);
         setAlwaysOnTop (false);
 
         const auto mouse = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition();
@@ -76,7 +202,7 @@ void WindowManager::openPlugin (const juce::String& key, juce::AudioPluginInstan
         windows.erase (it);
     }
 
-    windows[key] = std::make_unique<PluginWindow> (title, plugin, [this, key] { windows.erase (key); });
+    windows[key] = std::make_unique<PluginWindow> (ctx, title, plugin, [this, key] { windows.erase (key); });
 }
 
 void WindowManager::openChannel (int channelUid)

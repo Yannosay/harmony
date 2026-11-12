@@ -2,10 +2,11 @@
 import { ref } from 'vue';
 
 const shots = [
-  { id: 'playlist', label: 'Playlist', file: 'harmony-playlist', text: 'Arrange patterns and audio clips on 24 tracks. Paint, slice, clone with Shift+drag, set loops right on the ruler.' },
+  { id: 'playlist', label: 'Playlist', file: 'harmony-playlist', text: 'Arrange patterns, audio and automation clips. Every pattern sits in the pattern bar, ready to drag into the song.' },
   { id: 'pianoroll', label: 'Piano Roll', file: 'harmony-pianoroll', text: 'Pastel notes with velocity built in, scale highlighting, ghost notes from other channels and a velocity lane.' },
   { id: 'chords', label: 'Chord Generator', file: 'harmony-chords', text: 'Pick a key and a feel. Harmony writes voice-led chords, bass and rhythm straight into your pattern.' },
-  { id: 'mixer', label: 'Mixer', file: 'harmony-mixer', text: 'Every channel gets its own insert with ten effect slots, pan, mute, solo and meters. Latency is compensated for you.' },
+  { id: 'mixer', label: 'Mixer', file: 'harmony-mixer', text: 'Every channel gets its own insert with ten effect slots. Built-in EQ, compressor and limiter on the master, latency compensated for you.' },
+  { id: 'settings', label: 'Settings', file: 'harmony-settings', text: 'Interface size, note previews, snapping, playhead behaviour, project defaults, audio devices and plugin folders.' },
   { id: 'palette', label: 'Command Palette', file: 'harmony-palette', text: 'Ctrl+K opens every command in Harmony. Type a few letters and press Enter.' }
 ];
 

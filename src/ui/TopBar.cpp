@@ -22,7 +22,7 @@ TopBar::TopBar (Context& c, juce::MenuBarModel& model)
     patternModeButton.onClick = [this] { ctx.engine.setSongMode (false); refreshTransport(); };
     songModeButton.onClick = [this] { ctx.engine.setSongMode (true); refreshTransport(); };
 
-    for (auto* b : { &playButton, &stopButton, &recordButton, &metronomeButton, &paletteButton, &updateButton })
+    for (auto* b : { &playButton, &stopButton, &recordButton, &metronomeButton, &paletteButton, &settingsButton, &updateButton })
     {
         b->setFramed (true);
         addAndMakeVisible (b);
@@ -34,6 +34,7 @@ TopBar::TopBar (Context& c, juce::MenuBarModel& model)
     recordButton.setActiveColour (colours::danger);
     metronomeButton.onClick = [this] { ctx.commands.invokeDirectly (cmd::metronome, true); };
     paletteButton.onClick = [this] { ctx.commands.invokeDirectly (cmd::commandPalette, true); };
+    settingsButton.onClick = [this] { ctx.commands.invokeDirectly (cmd::preferences, true); };
     updateButton.setActiveColour (colours::success);
     updateButton.setToggleState (true, juce::dontSendNotification);
     updateButton.setVisible (false);
@@ -147,6 +148,8 @@ void TopBar::resized()
     r.removeFromLeft (8);
     metronomeButton.setBounds (r.removeFromLeft (36));
 
+    settingsButton.setBounds (r.removeFromRight (36));
+    r.removeFromRight (6);
     paletteButton.setBounds (r.removeFromRight (36));
     r.removeFromRight (8);
     if (updateButton.isVisible())
