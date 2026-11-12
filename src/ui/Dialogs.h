@@ -12,6 +12,8 @@ void askForText (const juce::String& title, const juce::String& label, const juc
 
 std::unique_ptr<juce::Component> createChordGeneratorPanel (Context& ctx, std::function<void (const std::vector<NoteData>&, bool replace)> apply);
 std::unique_ptr<juce::Component> createDrumGeneratorPanel (Context& ctx);
+std::unique_ptr<juce::Component> createFollowPanel (Context& ctx, int channelUid, std::function<void (const std::vector<NoteData>&, bool replace)> apply);
+std::unique_ptr<juce::Component> createTextReportPanel (const juce::String& text);
 std::unique_ptr<juce::Component> createRenderPanel (Context& ctx, std::function<void (engine::RenderSettings, bool minimise)> start);
 std::unique_ptr<juce::Component> createSettingsPanel (Context& ctx, std::function<void()> scanPlugins, int page = 0);
 std::unique_ptr<juce::Component> createHistoryPanel (Context& ctx, std::function<void (const juce::File&)> restore);

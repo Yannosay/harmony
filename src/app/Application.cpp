@@ -90,7 +90,7 @@ juce::File Application::projectArgument (const juce::StringArray& args)
     for (auto a : args)
     {
         a = a.unquoted();
-        if (a.endsWithIgnoreCase (".hmy") && juce::File::isAbsolutePath (a) && juce::File (a).existsAsFile())
+        if ((a.endsWithIgnoreCase (".hmy") || a.endsWithIgnoreCase (".flp")) && juce::File::isAbsolutePath (a) && juce::File (a).existsAsFile())
             return juce::File (a);
     }
     return {};
@@ -173,7 +173,10 @@ void Application::initialise (const juce::String&)
     if (const int shotIndex = args.indexOf ("--screenshot"); shotIndex >= 0)
     {
         const juce::File dir (args[shotIndex + 1].unquoted());
-        mainComponent->buildDemoContent();
+        if (auto file = projectArgument (args); file.existsAsFile())
+            mainComponent->openProjectFile (file);
+        else
+            mainComponent->buildDemoContent();
         juce::Timer::callAfterDelay (1500, [this, dir]
         {
             mainComponent->saveScreenshots (dir);

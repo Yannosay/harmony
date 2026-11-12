@@ -27,6 +27,8 @@ private:
     juce::MidiBuffer midi;
 };
 
+inline constexpr double maxCompensationSeconds = 0.5;
+
 class DelayCompensator
 {
 public:

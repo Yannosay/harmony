@@ -275,6 +275,10 @@ std::shared_ptr<const SampleData> SamplerChannelNode::loadSample (const juce::Fi
 {
     std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
     if (reader == nullptr)
+        if (auto stream = file.createInputStream())
+            reader.reset (formats.createReaderFor (std::move (stream)));
+
+    if (reader == nullptr)
     {
         error = "Unsupported or unreadable audio file: " + file.getFileName();
         return nullptr;

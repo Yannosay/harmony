@@ -67,6 +67,9 @@ namespace icons
     juce::Path scale();
     juce::Path gear();
     juce::Path automation();
+    juce::Path maximise();
+    juce::Path follow();
+    juce::Path dragOut();
 }
 
 juce::Drawable* brandMark();

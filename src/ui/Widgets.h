@@ -21,6 +21,35 @@ private:
     juce::Colour activeColour = colours::accent;
 };
 
+class DragOutButton final : public IconButton
+{
+public:
+    using IconButton::IconButton;
+    std::function<void()> onDragOut;
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! dragging && e.getDistanceFromDragStart() > 4 && onDragOut)
+        {
+            dragging = true;
+            onDragOut();
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        const bool wasDragging = dragging;
+        dragging = false;
+        if (wasDragging)
+            setState (juce::Button::buttonNormal);
+        else
+            IconButton::mouseUp (e);
+    }
+
+private:
+    bool dragging = false;
+};
+
 class PropertyBinding final : private juce::ValueTree::Listener
 {
 public:

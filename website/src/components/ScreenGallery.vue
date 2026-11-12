@@ -7,7 +7,7 @@ const shots = [
   { id: 'chords', label: 'Chord Generator', file: 'harmony-chords', text: 'Pick a key and a feel. Harmony writes voice-led chords, bass and rhythm straight into your pattern.' },
   { id: 'mixer', label: 'Mixer', file: 'harmony-mixer', text: 'Every channel gets its own insert with ten effect slots. Built-in EQ, compressor and limiter on the master, latency compensated for you.' },
   { id: 'settings', label: 'Settings', file: 'harmony-settings', text: 'Interface size, note previews, snapping, playhead behaviour, project defaults, audio devices and plugin folders.' },
-  { id: 'palette', label: 'Command Palette', file: 'harmony-palette', text: 'Ctrl+K opens every command in Harmony. Type a few letters and press Enter.' }
+  { id: 'follow', label: 'Follow Chords', file: 'harmony-follow', text: 'Harmony reads the chords in your pattern and writes a bassline, arpeggio or melody that follows them.' }
 ];
 
 const current = ref(0);

@@ -131,6 +131,7 @@ private:
     void schedule (const Snapshot& snap, bool song, int patternIndex, double from, double to,
                    int sampleOffset, double samplesPerTick, int numSamples);
     void releaseAll (const Snapshot& snap, int sampleOffset);
+    void chaseNotes (const Snapshot& snap, bool song, int patternIndex, double tick, int sampleOffset);
     void mixDown (const Snapshot& snap, int numSamples);
     void applyAutomation (const Snapshot& snap, double tick) noexcept;
     void updatePlayHead (const Snapshot& snap, double tick, bool isPlaying, double samplesPerTick, bool looping);
@@ -156,7 +157,7 @@ private:
     std::vector<std::function<void()>> retireAfterPublish;
 
     std::atomic<bool> playing { false }, songMode { false }, recording { false }, metronome { false };
-    std::atomic<bool> stopPending { false }, seekPending { false }, panicPending { false }, offline { false };
+    std::atomic<bool> stopPending { false }, seekPending { false }, panicPending { false }, offline { false }, chasePending { false };
     std::atomic<double> position { 0.0 }, seekTarget { 0.0 };
     std::atomic<double> positionStampMs { 0.0 }, ticksPerMs { 0.0 }, maxExtrapolationMs { 0.0 };
     std::atomic<float> metronomeLevel { 0.7f };

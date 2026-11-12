@@ -406,6 +406,38 @@ namespace icons
         return p;
     }
 
+    juce::Path maximise()
+    {
+        juce::Path p;
+        p.startNewSubPath (4.5f, 9.5f);  p.lineTo (4.5f, 4.5f);  p.lineTo (9.5f, 4.5f);
+        p.startNewSubPath (14.5f, 4.5f); p.lineTo (19.5f, 4.5f); p.lineTo (19.5f, 9.5f);
+        p.startNewSubPath (19.5f, 14.5f); p.lineTo (19.5f, 19.5f); p.lineTo (14.5f, 19.5f);
+        p.startNewSubPath (9.5f, 19.5f); p.lineTo (4.5f, 19.5f); p.lineTo (4.5f, 14.5f);
+        return p;
+    }
+
+    juce::Path follow()
+    {
+        juce::Path p;
+        p.addRoundedRectangle (3.5f, 5.0f, 7.0f, 3.0f, 1.0f);
+        p.addRoundedRectangle (3.5f, 10.5f, 7.0f, 3.0f, 1.0f);
+        p.addRoundedRectangle (3.5f, 16.0f, 7.0f, 3.0f, 1.0f);
+        p.startNewSubPath (13.5f, 17.5f);
+        p.lineTo (16.0f, 14.0f);
+        p.lineTo (18.0f, 15.5f);
+        p.lineTo (20.5f, 11.0f);
+        return p;
+    }
+
+    juce::Path dragOut()
+    {
+        juce::Path p;
+        p.addRoundedRectangle (4.0f, 4.0f, 11.0f, 14.0f, 2.0f);
+        p.startNewSubPath (12.0f, 13.0f); p.lineTo (20.0f, 13.0f);
+        p.startNewSubPath (17.0f, 10.0f); p.lineTo (20.0f, 13.0f); p.lineTo (17.0f, 16.0f);
+        return p;
+    }
+
     juce::Path automation()
     {
         juce::Path p;

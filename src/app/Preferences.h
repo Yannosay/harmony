@@ -57,6 +57,12 @@ inline constexpr DoubleSetting defaultTempo        { "defaultTempo", 128.0, 10.0
 inline const int autosaveMinutes[] = { 0, 1, 3, 5, 10 };
 inline const int uiScaleChoices[] = { 75, 90, 100, 110, 125, 150, 175, 200 };
 
+inline juce::File soundFontFolder (const juce::PropertySet& s)
+{
+    const juce::File chosen (s.getValue ("soundFontFolder"));
+    return chosen.isDirectory() ? chosen : juce::File();
+}
+
 inline juce::File projectFolder (const juce::PropertySet& s)
 {
     const juce::File chosen (s.getValue ("projectFolder"));

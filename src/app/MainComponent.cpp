@@ -4,6 +4,8 @@
 #include "ui/EffectEditor.h"
 #include "ui/AutomationEditor.h"
 #include "engine/BuiltinEffects.h"
+#include "model/FlpImport.h"
+#include "model/MidiIO.h"
 #include "model/ChordGenerator.h"
 #include "model/DrumGenerator.h"
 
@@ -196,7 +198,7 @@ MainComponent::MainComponent (Context& c)
         }
     };
 
-    ctx.sync.onError = [this] (const juce::String& message) { showToast (message, true); };
+    ctx.sync.onError = [this] (const juce::String& message) { queueError (message); };
     ctx.sync.onNodesChanged = [this]
     {
         rack.repaint();
@@ -257,6 +259,8 @@ void MainComponent::bindContext()
     };
     ctx.automateParameter = [this] (juce::AudioProcessor& p, int index) { automatePluginParameter (p, index); };
     ctx.effectTargetInsert = [this] { return effectTargetInsert(); };
+    ctx.toggleEditorMaximised = [this] { setEditorMaximised (! editorMaximised); };
+    ctx.isEditorMaximised = [this] { return editorMaximised; };
     ctx.addEffect = [this] (int insert, const juce::String& identifier, int slot) { return addEffectToInsert (insert, identifier, slot); };
 }
 
@@ -399,6 +403,27 @@ void MainComponent::automatePluginParameter (juce::AudioProcessor& processor, in
     showToast ("This plugin is not part of the project anymore", true);
 }
 
+void MainComponent::queueError (const juce::String& message)
+{
+    pendingErrors.addIfNotAlreadyThere (message);
+    if (pendingErrors.size() > 1)
+        return;
+
+    juce::Timer::callAfterDelay (400, [safe = juce::Component::SafePointer<MainComponent> (this)]
+    {
+        if (safe == nullptr || safe->pendingErrors.isEmpty())
+            return;
+
+        auto& errors = safe->pendingErrors;
+        if (errors.size() == 1)
+            safe->showToast (errors[0], true);
+        else
+            safe->showToast (juce::String (errors.size()) + " items could not be loaded: " + errors[0]
+                             + (errors.size() > 1 ? ", " + errors[1] : juce::String()) + (errors.size() > 2 ? " and more" : ""), true);
+        errors.clear();
+    });
+}
+
 void MainComponent::showSettings (int page)
 {
     showPanel (createSettingsPanel (ctx, [this] { startPluginScan(); }, page), "Settings");
@@ -453,11 +478,34 @@ void MainComponent::paint (juce::Graphics& g)
     g.fillAll (colours::background);
 }
 
+void MainComponent::setEditorMaximised (bool shouldMaximise)
+{
+    editorMaximised = shouldMaximise;
+    resized();
+    pianoRoll.refreshMaximiseButton();
+    if (editorMaximised && currentDock == Dock::pianoRoll)
+        pianoRoll.grabKeyboardFocus();
+}
+
 void MainComponent::layoutMiddle()
 {
     auto r = getLocalBounds();
     r.removeFromTop (topBarHeight);
     r.removeFromBottom (statusHeight);
+
+    playlist.setVisible (! editorMaximised);
+    dockResizer->setVisible (! editorMaximised);
+
+    if (editorMaximised)
+    {
+        browser.setVisible (false);
+        browserResizer->setVisible (false);
+        dockBar->setBounds (r.removeFromTop (dockBarHeight));
+        rack.setBounds (r);
+        pianoRoll.setBounds (r);
+        mixer.setBounds (r);
+        return;
+    }
 
     browser.setVisible (browserVisible);
     browserResizer->setVisible (browserVisible);
@@ -613,6 +661,15 @@ void MainComponent::handleTapTempo()
     }
 }
 
+ui::EditTarget* MainComponent::selectionEditor()
+{
+    const bool piano = pianoRoll.isVisible() && pianoRoll.hasSelection();
+    const bool clips = playlist.hasSelection();
+    if (piano != clips)
+        return piano ? static_cast<ui::EditTarget*> (&pianoRoll) : &playlist;
+    return activeEditor();
+}
+
 ui::EditTarget* MainComponent::activeEditor()
 {
     const auto mouse = getMouseXYRelative();
@@ -640,7 +697,7 @@ void MainComponent::openPatternOffset (int delta)
 void MainComponent::getAllCommands (juce::Array<juce::CommandID>& c)
 {
     using namespace cmd;
-    c.addArray ({ newProject, openProject, saveProject, saveProjectAs, exportAudio, projectHistory, quit,
+    c.addArray ({ newProject, openProject, saveProject, saveProjectAs, exportAudio, exportMidi, importFile, projectHistory, quit, maximiseEditor,
                   undo, redo, cut, copy, paste, deleteSelection, selectAll, duplicate, quantize, humanize, toggleMuteSelection,
                   playPause, stop, record, songMode, metronome, returnToStart, panic, tapTempo,
                   showPlaylist, showChannelRack, showPianoRoll, showMixer, toggleBrowser, commandPalette, fullscreen,
@@ -671,6 +728,8 @@ void MainComponent::getCommandInfo (juce::CommandID command, juce::ApplicationCo
         case saveProject:     set ("Save", "File", "Save the project"); info.addDefaultKeypress ('s', ctrl); break;
         case saveProjectAs:   set ("Save as...", "File", "Save the project under a new name"); info.addDefaultKeypress ('s', ctrl | shift); break;
         case exportAudio:     set ("Render / export audio...", "File", "Render to WAV, FLAC, OGG or AIFF, with optional stems"); info.addDefaultKeypress ('r', ctrl); break;
+        case exportMidi:      set ("Export MIDI...", "File", "Save the song or the current pattern as a MIDI file"); info.addDefaultKeypress ('m', ctrl | shift); break;
+        case importFile:      set ("Import FL Studio project or MIDI...", "File", "Convert an .flp project, or bring a MIDI file in as a new pattern"); info.addDefaultKeypress ('i', ctrl | shift); break;
         case projectHistory:  set ("Time machine...", "File", "Browse and restore automatic project snapshots"); info.addDefaultKeypress ('h', ctrl); break;
         case quit:            set ("Quit", "File", "Quit Harmony"); info.addDefaultKeypress (juce::KeyPress::F4Key, alt); break;
 
@@ -702,6 +761,7 @@ void MainComponent::getCommandInfo (juce::CommandID command, juce::ApplicationCo
         case showMixer:       set ("Mixer", "View", "Show the mixer"); info.addDefaultKeypress (K::F9Key, 0); break;
         case commandPalette:  set ("Command palette", "View", "Search and run any command"); info.addDefaultKeypress ('k', ctrl); info.addDefaultKeypress ('p', ctrl | shift); break;
         case fullscreen:      set ("Full screen", "View", "Toggle full screen"); info.addDefaultKeypress (K::F11Key, 0); break;
+        case maximiseEditor:  set ("Maximise editor", "View", "Give the piano roll, channel rack or mixer the whole window"); info.addDefaultKeypress (K::F12Key, 0); info.setTicked (editorMaximised); break;
 
         case addInstrument:   set ("Add instrument plugin...", "Add", "Add a VST, VST3 or LV2 instrument channel"); info.addDefaultKeypress ('i', ctrl); break;
         case addSoundFont:    set ("Add SoundFont...", "Add", "Add a channel that plays an .sf2 SoundFont"); break;
@@ -741,6 +801,9 @@ bool MainComponent::perform (const InvocationInfo& info)
         case openProject:     confirmDiscard ([this] { showOpenDialog(); }); break;
         case saveProject:     save(); break;
         case saveProjectAs:   saveAs(); break;
+        case exportMidi:      showMidiExportDialog(); break;
+        case importFile:      showImportDialog(); break;
+        case maximiseEditor:  setEditorMaximised (! editorMaximised); break;
         case exportAudio:     showPanel (createRenderPanel (ctx, [this] (engine::RenderSettings s, bool m) { startRender (std::move (s), m); }), "Render"); break;
         case projectHistory:
             showPanel (createHistoryPanel (ctx, [this] (const juce::File& f)
@@ -760,15 +823,15 @@ bool MainComponent::perform (const InvocationInfo& info)
 
         case undo:            project.getUndo().undo(); break;
         case redo:            project.getUndo().redo(); break;
-        case cut:             activeEditor()->editCut(); break;
-        case copy:            activeEditor()->editCopy(); break;
+        case cut:             selectionEditor()->editCut(); break;
+        case copy:            selectionEditor()->editCopy(); break;
         case paste:           activeEditor()->editPaste(); break;
-        case deleteSelection: activeEditor()->editDelete(); break;
+        case deleteSelection: selectionEditor()->editDelete(); break;
         case selectAll:       activeEditor()->editSelectAll(); break;
         case duplicate:       activeEditor()->editDuplicate(); break;
         case quantize:        pianoRoll.editQuantize(); break;
         case humanize:        pianoRoll.editHumanize(); break;
-        case toggleMuteSelection: activeEditor()->editToggleMute(); break;
+        case toggleMuteSelection: selectionEditor()->editToggleMute(); break;
 
         case playPause:
             if (ctx.engine.isPlaying())
@@ -869,7 +932,9 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, saveProject);
             m.addCommandItem (cm, saveProjectAs);
             m.addSeparator();
+            m.addCommandItem (cm, importFile);
             m.addCommandItem (cm, exportAudio);
+            m.addCommandItem (cm, exportMidi);
             m.addCommandItem (cm, projectHistory);
             m.addSeparator();
             m.addCommandItem (cm, quit);
@@ -897,6 +962,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
                 m.addCommandItem (cm, c);
             m.addSeparator();
             m.addCommandItem (cm, commandPalette);
+            m.addCommandItem (cm, maximiseEditor);
             m.addCommandItem (cm, fullscreen);
             break;
         case 4:
@@ -978,7 +1044,7 @@ void MainComponent::createNewProject()
 
 void MainComponent::showOpenDialog()
 {
-    chooser = std::make_unique<juce::FileChooser> ("Open project", prefs::projectFolder (ctx.settings), "*.hmy");
+    chooser = std::make_unique<juce::FileChooser> ("Open project", prefs::projectFolder (ctx.settings), "*.hmy;*.flp");
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
     {
         if (fc.getResult().existsAsFile())
@@ -988,6 +1054,12 @@ void MainComponent::showOpenDialog()
 
 void MainComponent::openProjectFile (const juce::File& file)
 {
+    if (file.hasFileExtension ("flp"))
+    {
+        importFlpProject (file);
+        return;
+    }
+
     const auto result = ctx.project.loadFrom (file);
     if (result.failed())
     {
@@ -1158,6 +1230,12 @@ void MainComponent::addFileAsChannel (const juce::File& file)
         return;
     }
 
+    if (midi::isMidiFile (file))
+    {
+        importMidiAsPattern (file);
+        return;
+    }
+
     if (ui::Browser::isSoundFont (file))
     {
         ctx.project.beginTransaction ("Add SoundFont");
@@ -1178,6 +1256,123 @@ void MainComponent::addFileAsChannel (const juce::File& file)
     }
 
     showToast ("Harmony cannot open " + file.getFileName(), true);
+}
+
+void MainComponent::importFlpProject (const juce::File& file)
+{
+    auto options = flp::defaultOptions();
+    options.findInstrumentXml = [this] (const juce::String& name) -> juce::String
+    {
+        for (auto& d : ctx.plugins.getPlugins (true))
+            if (d.name.equalsIgnoreCase (name))
+                return engine::PluginManager::toXmlString (d);
+        return {};
+    };
+    options.findEffectXml = [this] (const juce::String& name) -> juce::String
+    {
+        if (const auto builtin = flp::builtinEffectFor (name); builtin.isNotEmpty())
+            if (auto* info = engine::builtin::find (builtin))
+                return engine::PluginManager::toXmlString (engine::builtin::describe (*info));
+
+        for (auto& d : ctx.plugins.getPlugins (false))
+            if (d.name.equalsIgnoreCase (name))
+                return engine::PluginManager::toXmlString (d);
+        return {};
+    };
+
+    flp::Report report;
+    juce::String error;
+    const auto state = flp::convert (file, options, report, error);
+    if (! state.isValid())
+    {
+        showToast ("Could not import " + file.getFileName() + ": " + error, true);
+        return;
+    }
+
+    ctx.project.replaceState (state);
+    ctx.project.setFile ({});
+    ctx.engine.setSongMode (ctx.project.songLength() > 0);
+    addRecent (file);
+    updateTitle();
+    showToast (report.summary());
+    showPanel (createTextReportPanel (report.details() + "\n\nSave the project to keep it as a Harmony project."), "Imported " + file.getFileNameWithoutExtension());
+}
+
+void MainComponent::importMidiAsPattern (const juce::File& file)
+{
+    auto midiFile = midi::readFile (file);
+    auto tracks = midiFile ? midi::importTracks (*midiFile) : std::vector<midi::ImportedTrack>();
+    if (tracks.empty())
+    {
+        showToast (file.getFileName() + " contains no notes", true);
+        return;
+    }
+
+    auto& project = ctx.project;
+    project.beginTransaction ("Import MIDI");
+    auto pattern = project.addPattern (file.getFileNameWithoutExtension());
+    int created = 0;
+
+    for (size_t t = 0; t < tracks.size(); ++t)
+    {
+        int channelUid = 0;
+        if (tracks.size() == 1 && project.findChannel (project.selectedChannel()).isValid())
+            channelUid = project.selectedChannel();
+        else
+        {
+            const auto name = tracks[t].name.isNotEmpty() ? tracks[t].name : file.getFileNameWithoutExtension() + " " + juce::String ((int) t + 1);
+            channelUid = project.addChannel (kind::sampler, name)[id::uid];
+            ++created;
+        }
+
+        for (auto n : tracks[t].notes)
+        {
+            n.channel = channelUid;
+            project.addNote (pattern, n);
+        }
+    }
+
+    project.setCurrentPattern (pattern[id::uid]);
+    showToast ("Imported " + file.getFileName() + " as pattern \"" + pattern[id::name].toString() + "\""
+               + (created > 0 ? ". " + juce::String (created) + " new channels are waiting for an instrument." : juce::String()));
+    if (ctx.openPianoRoll)
+        ctx.openPianoRoll (project.selectedChannel());
+}
+
+void MainComponent::showImportDialog()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Import FL Studio project or MIDI file", prefs::projectFolder (ctx.settings), "*.flp;*.mid;*.midi");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
+    {
+        const auto file = fc.getResult();
+        if (! file.existsAsFile())
+            return;
+
+        if (file.hasFileExtension ("flp"))
+            confirmDiscard ([this, file] { importFlpProject (file); });
+        else
+            importMidiAsPattern (file);
+    });
+}
+
+void MainComponent::showMidiExportDialog()
+{
+    const bool song = ctx.project.songLength() > 0 && (ctx.engine.isSongMode() || currentDock != Dock::pianoRoll);
+    const auto name = ctx.project.getDisplayName() + (song ? juce::String() : " - " + ctx.project.currentPattern()[id::name].toString());
+    chooser = std::make_unique<juce::FileChooser> (song ? "Export song as MIDI" : "Export pattern as MIDI",
+                                                   prefs::projectFolder (ctx.settings).getChildFile (juce::File::createLegalFileName (name) + ".mid"), "*.mid");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting, [this, song] (const juce::FileChooser& fc)
+    {
+        if (fc.getResult() == juce::File())
+            return;
+
+        const auto target = fc.getResult().withFileExtension (".mid");
+        const auto file = song ? midi::exportSong (ctx.project) : midi::exportPattern (ctx.project, ctx.project.currentPattern());
+        if (midi::writeFile (file, target))
+            showToast ("Exported " + juce::String (song ? "the song" : "the pattern") + " to " + target.getFileName());
+        else
+            showToast ("Could not write " + target.getFullPathName(), true);
+    });
 }
 
 void MainComponent::importAudio (const juce::File& file, int trackIndex, juce::int64 tick)
@@ -1205,8 +1400,9 @@ void MainComponent::importAudio (const juce::File& file, int trackIndex, juce::i
 void MainComponent::chooseFileForChannel (const juce::String& kindName)
 {
     const bool sf = kindName == kind::soundfont;
+    const auto soundFonts = prefs::soundFontFolder (ctx.settings);
     chooser = std::make_unique<juce::FileChooser> (sf ? "Choose a SoundFont" : "Choose a sample",
-                                                   juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                   sf && soundFonts.isDirectory() ? soundFonts : juce::File::getSpecialLocation (juce::File::userMusicDirectory),
                                                    sf ? juce::String ("*.sf2") : ctx.engine.getFormats().getWildcardForAllFormats());
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
     {
@@ -1345,6 +1541,9 @@ void MainComponent::saveScreenshots (const juce::File& directory)
     showDock (Dock::pianoRoll);
     pianoRoll.scrollToY ((127.0 - 82.0) * pianoRoll.getRowHeight(), false);
     capture ("harmony-pianoroll");
+    setEditorMaximised (true);
+    capture ("harmony-pianoroll-maximised");
+    setEditorMaximised (false);
 
     showDock (Dock::mixer);
     capture ("harmony-mixer");
@@ -1374,6 +1573,12 @@ void MainComponent::saveScreenshots (const juce::File& directory)
     showSettings (1);
     settleOverlays();
     capture ("harmony-settings");
+    Overlay::closeAll (*this);
+
+    showDock (Dock::pianoRoll);
+    pianoRoll.showFollowGenerator();
+    settleOverlays();
+    capture ("harmony-follow");
     Overlay::closeAll (*this);
 
     if (auto eq = engine::builtin::create ("eq"))

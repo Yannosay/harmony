@@ -2,6 +2,7 @@
 #include "app/History.h"
 #include "model/ChordGenerator.h"
 #include "model/DrumGenerator.h"
+#include "model/FollowGenerator.h"
 #include "model/MusicTheory.h"
 #include "engine/AudioEngine.h"
 #include "update/Version.h"
@@ -79,6 +80,183 @@ namespace
         }
 
         std::vector<Row> rows;
+    };
+
+    class FollowPanel final : public Panel
+    {
+    public:
+        FollowPanel (Context& c, int channel, std::function<void (const std::vector<NoteData>&, bool)> a)
+            : ctx (c), channelUid (channel), apply (std::move (a))
+        {
+            setSize (560, 510);
+
+            sourceBox.addItem ("All other channels", 1);
+            sourceIds.add (-1);
+            std::map<int, int> notesPerChannel;
+            for (auto n : ctx.project.currentPattern())
+                ++notesPerChannel[(int) n[id::channel]];
+
+            for (auto ch : ctx.project.channelsTree())
+            {
+                const int uid = ch[id::uid];
+                if (notesPerChannel[uid] == 0)
+                    continue;
+                sourceBox.addItem (ch[id::name].toString() + (uid == channelUid ? "  (this channel)" : juce::String()), sourceBox.getNumItems() + 1);
+                sourceIds.add (uid);
+            }
+
+            sourceBox.onChange = [this] { analyse(); };
+            sourceBox.setSelectedItemIndex (0, juce::dontSendNotification);
+            analyse();
+
+            if (! hasHarmony() && sourceIds.contains (channelUid))
+            {
+                sourceBox.setSelectedItemIndex (sourceIds.indexOf (channelUid), juce::dontSendNotification);
+                analyse();
+            }
+
+            fill (styleBox, follow::styleNames(), 1);
+            fill (octaveBox, { "1", "2", "3", "4", "5", "6" }, 1);
+            styleBox.onChange = [this]
+            {
+                const int style = styleBox.getSelectedItemIndex();
+                octaveBox.setSelectedItemIndex (style <= 1 ? 1 : (style == 2 ? 3 : 4), juce::dontSendNotification);
+                repaint();
+            };
+
+            for (auto* s : { &density, &velocity })
+            {
+                s->setSliderStyle (juce::Slider::LinearHorizontal);
+                s->setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+                s->setRange (0.0, 1.0, 0.01);
+            }
+            density.setValue (0.5, juce::dontSendNotification);
+            velocity.setValue (0.8, juce::dontSendNotification);
+            replace.setButtonText ("Replace the channel's notes in this pattern");
+            replace.setToggleState (true, juce::dontSendNotification);
+
+            addRow ("Chords from", sourceBox);
+            addRow ("Write a", styleBox);
+            addRow ("Octave", octaveBox);
+            addRow ("Movement", density);
+            addRow ("Velocity", velocity);
+            addRow ({}, replace, 24);
+
+            ideaButton.onClick = [this]
+            {
+                seed = (juce::uint32) juce::Random::getSystemRandom().nextInt (1 << 30) + 1;
+                write();
+            };
+            writeButton.setColour (juce::TextButton::buttonColourId, colours::accent);
+            writeButton.setColour (juce::TextButton::textColourOffId, colours::background);
+            writeButton.onClick = [this] { write(); };
+            writeButton.setEnabled (! chords.empty());
+            ideaButton.setEnabled (! chords.empty());
+            addAndMakeVisible (ideaButton);
+            analyse();
+            addAndMakeVisible (writeButton);
+        }
+
+        bool hasHarmony() const
+        {
+            for (auto& c : chords)
+                if (c.keys.size() >= 2)
+                    return true;
+            return false;
+        }
+
+        void analyse()
+        {
+            const int source = sourceIds[juce::jmax (0, sourceBox.getSelectedItemIndex())];
+            std::vector<NoteData> notes;
+            auto pattern = ctx.project.currentPattern();
+            for (auto n : pattern)
+            {
+                const int uid = n[id::channel];
+                if ((source < 0 && uid != channelUid) || uid == source)
+                    notes.push_back (Project::readNote (n));
+            }
+
+            chords = follow::analyse (notes, ctx.project.patternLength (pattern), ctx.project.ticksPerBeat());
+            replace.setToggleState (source != channelUid, juce::dontSendNotification);
+            replace.setEnabled (source != channelUid);
+            writeButton.setEnabled (! chords.empty());
+            ideaButton.setEnabled (! chords.empty());
+            repaint();
+        }
+
+        void write()
+        {
+            follow::Settings s;
+            s.style = (follow::Style) styleBox.getSelectedItemIndex();
+            s.octave = octaveBox.getText().getIntValue();
+            s.density = (float) density.getValue();
+            s.velocity = (float) velocity.getValue();
+            s.scaleRoot = ctx.project.getState()[id::scaleRoot];
+            s.scale = ctx.project.getState()[id::scaleType].toString();
+            s.seed = seed;
+            s.channel = channelUid;
+
+            const auto notes = follow::generate (chords, s, ctx.project.ticksPerBeat());
+            apply (notes, replace.getToggleState());
+            if (ctx.notify)
+                ctx.notify ("Wrote " + juce::String ((int) notes.size()) + " notes following " + juce::String ((int) chords.size()) + " chords. Press New idea for another take.", false);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            paintRowLabels (g);
+
+            auto strip = previewArea.toFloat();
+            g.setColour (colours::background);
+            g.fillRoundedRectangle (strip, 8.0f);
+
+            if (chords.empty())
+            {
+                g.setColour (colours::textDim);
+                g.setFont (font (11.0f));
+                g.drawFittedText ("No chords found in this pattern yet. Put chords on another channel first, for example with the chord generator (Ctrl+G).",
+                                  previewArea.reduced (16, 6), juce::Justification::centred, 2);
+                return;
+            }
+
+            const auto total = (float) juce::jmax ((juce::int64) 1, ctx.project.patternLength (ctx.project.currentPattern()));
+            for (auto& c : chords)
+            {
+                auto cell = juce::Rectangle<float> (strip.getX() + strip.getWidth() * (float) c.start / total, strip.getY(),
+                                                    strip.getWidth() * (float) (c.end - c.start) / total, strip.getHeight()).reduced (3.0f);
+                g.setColour (palette::notePink.withAlpha (0.14f));
+                g.fillRoundedRectangle (cell, 6.0f);
+                g.setColour (colours::accent);
+                g.setFont (font (juce::jmin (13.0f, cell.getWidth() * 0.4f), Weight::semibold));
+                g.drawText (c.name, cell, juce::Justification::centred, false);
+            }
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (22, 16);
+            previewArea = r.removeFromTop (64);
+            r.removeFromTop (16);
+            auto buttons = r.removeFromBottom (36);
+            writeButton.setBounds (buttons.removeFromRight (150));
+            buttons.removeFromRight (8);
+            ideaButton.setBounds (buttons.removeFromRight (130));
+            layoutRows (r);
+        }
+
+    private:
+        Context& ctx;
+        int channelUid;
+        std::function<void (const std::vector<NoteData>&, bool)> apply;
+        std::vector<follow::ChordSegment> chords;
+        juce::ComboBox sourceBox, styleBox, octaveBox;
+        juce::Array<int> sourceIds;
+        juce::Slider density, velocity;
+        juce::ToggleButton replace;
+        juce::TextButton ideaButton { "New idea" }, writeButton { "Write notes" };
+        juce::Rectangle<int> previewArea;
+        juce::uint32 seed = 7;
     };
 
     class ChordGeneratorPanel final : public Panel
@@ -622,6 +800,24 @@ namespace
             };
             addRow ("Project folder", folderButton);
 
+            const auto sf = prefs::soundFontFolder (ctx.settings);
+            soundFontButton.setButtonText (sf.isDirectory() ? sf.getFullPathName() : juce::String ("Choose a folder..."));
+            soundFontButton.onClick = [this]
+            {
+                const auto current = prefs::soundFontFolder (ctx.settings);
+                chooser = std::make_unique<juce::FileChooser> ("SoundFont folder", current.isDirectory() ? current : juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+                chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this] (const juce::FileChooser& fc)
+                {
+                    if (fc.getResult().isDirectory())
+                    {
+                        ctx.settings.setValue ("soundFontFolder", fc.getResult().getFullPathName());
+                        soundFontButton.setButtonText (fc.getResult().getFullPathName());
+                    }
+                });
+            };
+            addRow ("SoundFont folder", soundFontButton);
+            addNote (soundFontButton, "Shown in the browser and opened first when you add a SoundFont.");
+
             fill (autosaveBox, { "Off", "Every minute", "Every 3 minutes", "Every 5 minutes", "Every 10 minutes" }, prefs::autosaveChoice.get (ctx.settings));
             autosaveBox.onChange = [this] { prefs::autosaveChoice.set (ctx.settings, autosaveBox.getSelectedItemIndex()); };
             addRow ("Time machine", autosaveBox);
@@ -649,7 +845,7 @@ namespace
         juce::ComboBox scaleBox, autosaveBox;
         NumberBox tempoBox { prefs::defaultTempo.minimum, prefs::defaultTempo.maximum, 0.01, 2 };
         NumberBox tracksBox { (double) prefs::defaultTrackCount.minimum, (double) prefs::defaultTrackCount.maximum, 1.0, 0 };
-        juce::TextButton folderButton;
+        juce::TextButton folderButton, soundFontButton;
         juce::ToggleButton reopen, autoUpdate;
         juce::TextButton checkButton { "Check for updates now" }, dataButton { "Open user data folder" };
         std::unique_ptr<juce::FileChooser> chooser;
@@ -1036,6 +1232,26 @@ namespace
 std::unique_ptr<juce::Component> createChordGeneratorPanel (Context& ctx, std::function<void (const std::vector<NoteData>&, bool)> apply)
 {
     return std::make_unique<ChordGeneratorPanel> (ctx, std::move (apply));
+}
+
+std::unique_ptr<juce::Component> createFollowPanel (Context& ctx, int channelUid, std::function<void (const std::vector<NoteData>&, bool)> apply)
+{
+    return std::make_unique<FollowPanel> (ctx, channelUid, std::move (apply));
+}
+
+std::unique_ptr<juce::Component> createTextReportPanel (const juce::String& text)
+{
+    auto editor = std::make_unique<juce::TextEditor>();
+    editor->setMultiLine (true);
+    editor->setReadOnly (true);
+    editor->setScrollbarsShown (true);
+    editor->setCaretVisible (false);
+    editor->setFont (font (11.0f));
+    editor->setColour (juce::TextEditor::backgroundColourId, colours::panel);
+    editor->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+    editor->setText (text, false);
+    editor->setSize (620, 440);
+    return editor;
 }
 
 std::unique_ptr<juce::Component> createDrumGeneratorPanel (Context& ctx)

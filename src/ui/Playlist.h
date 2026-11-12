@@ -25,6 +25,7 @@ public:
     void editDuplicate() override;
     void editToggleMute() override;
     void setTool (Tool) override;
+    bool hasSelection() const override;
     void setFollowPlayhead (bool shouldFollow);
 
     void paint (juce::Graphics&) override;

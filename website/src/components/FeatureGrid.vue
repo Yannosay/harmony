@@ -2,15 +2,15 @@
 import AppIcon from './AppIcon.vue';
 
 const features = [
-  { icon: 'wand', title: 'Chords and drums on demand', text: 'Pick a key and a feel. Voice-led progressions with bass and rhythm, or a full groove mapped to your own kick, snare and hats by name.' },
+  { icon: 'download', title: 'Opens your FL Studio projects', text: 'Channels, patterns, notes, the arrangement, routing and mixer names come across from any .flp since FL 12.9. FL effects become Harmony effects.' },
+  { icon: 'wand', title: 'Parts that follow your chords', text: 'Write chords or let the generator do it, then get a bassline, arpeggio or melody that follows them, in key, in one click.' },
   { icon: 'automation', title: 'Automation where you arrange', text: 'Right-click any knob, or press Automate in a plugin window to grab the last control you touched. Drag points and bend curves right in the playlist.' },
+  { icon: 'playlist', title: 'MIDI in and out', text: 'Paste MIDI you copied elsewhere, drop .mid files on the piano roll, or drag your notes straight out into another DAW.' },
   { icon: 'piano', title: 'Velocity without hunting', text: 'Alt+scroll over a note to set its velocity. Stems grab from a wide area, chords move together, selections scale as one.' },
-  { icon: 'playlist', title: 'Every pattern, one click away', text: 'All patterns live in the pattern bar. Click to edit, drag straight into the song, right-click to clone or recolour.' },
-  { icon: 'scale', title: 'Ghost notes that take you there', text: 'See the other channels behind your notes, then double-click one to jump to that channel. Scale lock keeps new notes in key.' },
-  { icon: 'sparkle', title: 'Effects where you drop them', text: 'Eleven built-in effects with a live EQ curve and gain reduction meters. Drop any effect on any mixer strip, master included.' },
-  { icon: 'shield', title: 'Plugins cannot crash your session', text: 'Every plugin is scanned in its own process. A broken one gets skipped, your project stays open.' },
-  { icon: 'history', title: 'Time machine', text: 'Harmony keeps versions of your project while you work. Open any of them, even after a crash.' },
-  { icon: 'search', title: 'Everything in two keystrokes', text: 'Ctrl+K opens every command with its shortcut next to it. Type a few letters, press Enter.' }
+  { icon: 'scale', title: 'Ghost notes that take you there', text: 'See the other channels behind your notes, then double-click one to jump to that channel. F12 gives the piano roll the whole screen.' },
+  { icon: 'sparkle', title: 'Effects where you drop them', text: 'Eleven built-in effects with a live EQ curve and gain reduction meters. Drop any effect on any of 64 mixer strips, master included.' },
+  { icon: 'search', title: 'Every pattern, one click away', text: 'All patterns live in the pattern bar. Click to edit, drag straight into the song. Ctrl+K reaches every other command.' },
+  { icon: 'shield', title: 'Nothing gets lost', text: 'Plugins are scanned in their own process, so a broken one cannot crash your session, and the time machine keeps versions of your work.' }
 ];
 </script>
 

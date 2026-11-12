@@ -142,6 +142,7 @@ void AudioEngine::play()
         return;
 
     playStartTick = position.load();
+    chasePending = true;
     playing = true;
 }
 
@@ -172,6 +173,7 @@ void AudioEngine::setPositionTicks (double ticks)
 {
     ticks = juce::jmax (0.0, ticks);
     seekTarget = ticks;
+    chasePending = true;
     seekPending = true;
     position = ticks;
 
@@ -429,7 +431,7 @@ void AudioEngine::prepareAll (double newSampleRate, int newBlockSize)
 
     chunkBuffer.setSize (2, blockSize, false, true, true);
     directBuffer.setSize (2, blockSize, false, true, true);
-    directCompensator.prepare ((int) (sampleRate * 2.0), blockSize);
+    directCompensator.prepare ((int) (sampleRate * maxCompensationSeconds), blockSize);
     previewBuffer.setSize (2, blockSize, false, true, true);
     liveCollector.reset (sampleRate);
     previewTransport.prepareToPlay (blockSize, sampleRate);
@@ -471,6 +473,44 @@ void AudioEngine::releaseAll (const Snapshot& snap, int sampleOffset)
     for (auto& plan : snap.channels)
         if (plan.node != nullptr)
             plan.node->releaseHeldNotes (sampleOffset);
+}
+
+void AudioEngine::chaseNotes (const Snapshot& snap, bool song, int patternIndex, double tick, int sampleOffset)
+{
+    for (auto& plan : snap.channels)
+    {
+        if (plan.node == nullptr)
+            continue;
+
+        const std::vector<MidiEvent>* events = nullptr;
+        if (song)
+            events = &plan.song;
+        else if (juce::isPositiveAndBelow (patternIndex, (int) plan.patterns.size()))
+            events = &plan.patterns[(size_t) patternIndex];
+
+        if (events == nullptr || events->empty())
+            continue;
+
+        std::array<int, 128> sounding {};
+        std::array<juce::uint8, 128> velocity {};
+        for (auto& e : *events)
+        {
+            if ((double) e.tick >= tick)
+                break;
+
+            if (e.isNoteOff())
+                sounding[e.key] = juce::jmax (0, sounding[e.key] - 1);
+            else
+            {
+                ++sounding[e.key];
+                velocity[e.key] = e.velocity;
+            }
+        }
+
+        for (int key = 0; key < 128; ++key)
+            if (sounding[(size_t) key] > 0)
+                plan.node->addNoteOn (key, velocity[(size_t) key] / 127.0f, sampleOffset);
+    }
 }
 
 void AudioEngine::schedule (const Snapshot& snap, bool song, int patternIndex, double from, double to,
@@ -790,6 +830,7 @@ void AudioEngine::processChunk (const Snapshot& snap, juce::AudioBuffer<float>& 
         loopEnd = juce::jmax (loopStart + 1, loopEnd);
         updatePlayHead (snap, pos, true, samplesPerTick, ! offline.load());
 
+        bool chase = chasePending.exchange (false);
         int offset = 0;
         while (offset < numSamples)
         {
@@ -797,6 +838,13 @@ void AudioEngine::processChunk (const Snapshot& snap, juce::AudioBuffer<float>& 
             {
                 releaseAll (snap, offset);
                 pos = (double) loopStart;
+                chase = true;
+            }
+
+            if (chase)
+            {
+                chaseNotes (snap, song, patternIndex, pos, offset);
+                chase = false;
             }
 
             const double samplesLeft = ((double) loopEnd - pos) * samplesPerTick;
@@ -815,6 +863,10 @@ void AudioEngine::processChunk (const Snapshot& snap, juce::AudioBuffer<float>& 
             {
                 releaseAll (snap, juce::jmin (offset, numSamples - 1));
                 pos = (double) loopStart;
+                if (offset < numSamples)
+                    chase = true;
+                else
+                    chasePending = true;
             }
         }
 
@@ -910,6 +962,7 @@ void AudioEngine::beginOffline (double renderSampleRate, int renderBlockSize, ju
     position = (double) startTick;
     seekPending = false;
     stopPending = true;
+    chasePending = true;
     playing = true;
 }
 

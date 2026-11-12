@@ -8,6 +8,8 @@ namespace harmony::ui
 {
 class PianoRoll final : public TimelineCanvas,
                         public EditTarget,
+                        public juce::FileDragAndDropTarget,
+                        public juce::DragAndDropTarget,
                         private juce::ValueTree::Listener
 {
 public:
@@ -17,8 +19,16 @@ public:
     void setChannel (int uid);
     void setGhostsVisible (bool shouldShow);
     int getChannel() const noexcept { return channelUid; }
-    void insertNotes (const std::vector<NoteData>& notes, bool replaceExisting);
+    void insertNotes (const std::vector<NoteData>& notes, bool replaceExisting, bool appendAfterExisting = true);
+    void pasteNotesAt (const std::vector<NoteData>& notes, juce::int64 at, const juce::String& undoName);
     void showChordGenerator();
+    void showFollowGenerator();
+    void refreshMaximiseButton();
+
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
+    bool isInterestedInDragSource (const SourceDetails&) override;
+    void itemDropped (const SourceDetails&) override;
 
     void editCut() override;
     void editCopy() override;
@@ -30,6 +40,7 @@ public:
     void editHumanize() override;
     void editToggleMute() override;
     void setTool (Tool) override;
+    bool hasSelection() const override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -82,6 +93,9 @@ private:
     void updateChordLabel();
     void refreshToolbar();
     void showChannelMenu();
+    void dragMidiOut();
+    void exportMidiFile();
+    void importMidiFile (const juce::File& file, juce::int64 at);
 
     void drawKeyboard (juce::Graphics&) const;
     void drawRows (juce::Graphics&) const;
@@ -123,10 +137,15 @@ private:
     IconButton quantizeButton { "Quantize (Ctrl+Q)", icons::magnet() };
     IconButton humanizeButton { "Humanize (Alt+H)", icons::wave() };
     IconButton chordButton { "Chord generator (Ctrl+G)", icons::wand() };
+    IconButton followButton { "Follow chords: write a bassline, arpeggio or melody that follows the chords in this pattern", icons::follow() };
+    DragOutButton dragOutButton { "Drag these notes out as MIDI into FL Studio, Explorer or another DAW. Click to export", icons::dragOut() };
+    IconButton maximiseButton { "Full screen piano roll (F12)", icons::maximise() };
     juce::TextButton channelButton;
     juce::ComboBox snapBox, rootBox, scaleBox;
     juce::String chordText;
 
     static std::vector<NoteData> clipboard;
+    static juce::uint32 clipboardSequence;
+    std::unique_ptr<juce::FileChooser> chooser;
 };
 }

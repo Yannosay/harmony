@@ -3,10 +3,13 @@
 #include "model/MusicTheory.h"
 #include "engine/AudioEngine.h"
 #include "app/Preferences.h"
+#include "ui/SystemClipboard.h"
+#include "model/MidiIO.h"
 
 namespace harmony::ui
 {
 std::vector<NoteData> PianoRoll::clipboard;
+juce::uint32 PianoRoll::clipboardSequence = 0;
 
 namespace
 {
@@ -38,8 +41,8 @@ PianoRoll::PianoRoll (Context& c)
     scrollY = { (127.0 - 84.0) * 16.0, (127.0 - 84.0) * 16.0 };
     snapIndex = 0;
 
-    for (auto* b : { &drawButton, &selectButton, &sliceButton, &muteButton, &ghostButton, &scaleLockButton,
-                     &quantizeButton, &humanizeButton, &chordButton })
+    for (auto* b : std::initializer_list<juce::Button*> { &drawButton, &selectButton, &sliceButton, &muteButton, &ghostButton, &scaleLockButton,
+                                                       &quantizeButton, &humanizeButton, &chordButton, &followButton, &dragOutButton, &maximiseButton })
         addAndMakeVisible (b);
 
     drawButton.onClick = [this] { setTool (Tool::draw); };
@@ -51,6 +54,10 @@ PianoRoll::PianoRoll (Context& c)
     quantizeButton.onClick = [this] { editQuantize(); };
     humanizeButton.onClick = [this] { editHumanize(); };
     chordButton.onClick = [this] { showChordGenerator(); };
+    followButton.onClick = [this] { showFollowGenerator(); };
+    dragOutButton.onDragOut = [this] { dragMidiOut(); };
+    dragOutButton.onClick = [this] { exportMidiFile(); };
+    maximiseButton.onClick = [this] { if (ctx.toggleEditorMaximised) ctx.toggleEditorMaximised(); };
 
     addAndMakeVisible (channelButton);
     channelButton.onClick = [this] { showChannelMenu(); };
@@ -219,6 +226,14 @@ void PianoRoll::stopPreview()
     previewKey = -1;
 }
 
+bool PianoRoll::hasSelection() const
+{
+    for (auto& t : selection)
+        if (t.getParent().isValid())
+            return true;
+    return false;
+}
+
 void PianoRoll::setTool (Tool t)
 {
     tool = t;
@@ -289,11 +304,128 @@ void PianoRoll::resized()
     scaleLockButton.setBounds (bar.removeFromLeft (28));
     bar.removeFromLeft (10);
 
-    for (auto* b : { &ghostButton, &quantizeButton, &humanizeButton, &chordButton })
+    for (auto* b : { &ghostButton, &quantizeButton, &humanizeButton, &chordButton, &followButton })
     {
         b->setBounds (bar.removeFromLeft (28));
         bar.removeFromLeft (2);
     }
+
+    auto right = toolbarArea.reduced (8, 6);
+    maximiseButton.setBounds (right.removeFromRight (28));
+    right.removeFromRight (2);
+    dragOutButton.setBounds (right.removeFromRight (28));
+}
+
+void PianoRoll::refreshMaximiseButton()
+{
+    maximiseButton.setToggleState (ctx.isEditorMaximised && ctx.isEditorMaximised(), juce::dontSendNotification);
+}
+
+void PianoRoll::dragMidiOut()
+{
+    auto channel = project.findChannel (channelUid);
+    if (! channel.isValid())
+        return;
+
+    const auto name = juce::File::createLegalFileName (pattern()[id::name].toString() + " - " + channel[id::name].toString());
+    const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Harmony MIDI").getNonexistentChildFile (name, ".mid", false);
+    file.getParentDirectory().createDirectory();
+
+    if (! midi::writeFile (midi::exportPattern (project, pattern(), channelUid), file))
+    {
+        if (ctx.notify)
+            ctx.notify ("Could not write the MIDI file", true);
+        return;
+    }
+
+    juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, &dragOutButton);
+}
+
+void PianoRoll::exportMidiFile()
+{
+    auto channel = project.findChannel (channelUid);
+    if (! channel.isValid())
+        return;
+
+    const auto name = juce::File::createLegalFileName (pattern()[id::name].toString() + " - " + channel[id::name].toString());
+    chooser = std::make_unique<juce::FileChooser> ("Export notes as MIDI", prefs::projectFolder (ctx.settings).getChildFile (name + ".mid"), "*.mid");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting, [this] (const juce::FileChooser& fc)
+    {
+        const auto target = fc.getResult().withFileExtension (".mid");
+        if (fc.getResult() == juce::File())
+            return;
+
+        const bool ok = midi::writeFile (midi::exportPattern (project, pattern(), channelUid), target);
+        if (ctx.notify)
+            ctx.notify (ok ? "Exported " + target.getFileName() : "Could not write " + target.getFileName(), ! ok);
+    });
+}
+
+void PianoRoll::pasteNotesAt (const std::vector<NoteData>& notes, juce::int64 at, const juce::String& undoName)
+{
+    if (notes.empty() || ! project.findChannel (channelUid).isValid())
+        return;
+
+    juce::int64 first = std::numeric_limits<juce::int64>::max();
+    for (auto& n : notes)
+        first = juce::jmin (first, n.start);
+
+    const auto beat = project.ticksPerBeat();
+    const auto aligned = (first / beat) * beat;
+
+    project.beginTransaction (undoName);
+    selection.clear();
+    for (auto n : notes)
+    {
+        n.channel = channelUid;
+        n.start = n.start - aligned + at;
+        selection.add (project.addNote (pattern(), n));
+    }
+    updateChordLabel();
+    repaint();
+}
+
+void PianoRoll::importMidiFile (const juce::File& file, juce::int64 at)
+{
+    auto midiFile = midi::readFile (file);
+    const auto notes = midiFile ? midi::flatten (midi::importTracks (*midiFile)) : std::vector<NoteData>();
+    if (notes.empty())
+    {
+        if (ctx.notify)
+            ctx.notify (file.getFileName() + " contains no notes", true);
+        return;
+    }
+
+    pasteNotesAt (notes, at, "Import MIDI");
+    if (ctx.notify)
+        ctx.notify ("Added " + juce::String ((int) notes.size()) + " notes from " + file.getFileName(), false);
+}
+
+bool PianoRoll::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (auto& f : files)
+        if (midi::isMidiFile (juce::File (f)))
+            return true;
+    return false;
+}
+
+void PianoRoll::filesDropped (const juce::StringArray& files, int x, int)
+{
+    for (auto& f : files)
+        if (midi::isMidiFile (juce::File (f)))
+            importMidiFile (juce::File (f), snap (juce::jmax (0.0, xToTick (x))));
+}
+
+bool PianoRoll::isInterestedInDragSource (const SourceDetails& details)
+{
+    const auto d = details.description.toString();
+    return d.startsWith ("file:") && midi::isMidiFile (juce::File (d.fromFirstOccurrenceOf ("file:", false, false)));
+}
+
+void PianoRoll::itemDropped (const SourceDetails& details)
+{
+    importMidiFile (juce::File (details.description.toString().fromFirstOccurrenceOf ("file:", false, false)),
+                    snap (juce::jmax (0.0, xToTick (details.localPosition.x))));
 }
 
 void PianoRoll::drawRows (juce::Graphics& g) const
@@ -1229,6 +1361,7 @@ void PianoRoll::editCopy()
         return;
 
     clipboard.clear();
+    clipboardSequence = clipboard::sequenceNumber();
     juce::int64 first = std::numeric_limits<juce::int64>::max();
     for (auto& t : selection)
         first = juce::jmin (first, (juce::int64) t[id::start]);
@@ -1250,11 +1383,29 @@ void PianoRoll::editCut()
 
 void PianoRoll::editPaste()
 {
-    if (clipboard.empty() || ! project.findChannel (channelUid).isValid())
+    if (! project.findChannel (channelUid).isValid())
         return;
 
     const auto mouse = getMouseXYRelative();
     const auto at = gridArea.contains (mouse) ? snap (xToTick (mouse.x)) : snap (viewTick.current, true);
+
+    if (clipboard.empty() || clipboard::sequenceNumber() != clipboardSequence)
+    {
+        if (auto external = clipboard::readMidi())
+        {
+            const auto notes = midi::flatten (midi::importTracks (*external));
+            if (! notes.empty())
+            {
+                pasteNotesAt (notes, at, "Paste MIDI");
+                if (ctx.notify)
+                    ctx.notify ("Pasted " + juce::String ((int) notes.size()) + " notes from the clipboard", false);
+                return;
+            }
+        }
+    }
+
+    if (clipboard.empty())
+        return;
 
     project.beginTransaction ("Paste notes");
     selection.clear();
@@ -1274,9 +1425,11 @@ void PianoRoll::editDelete()
         return;
 
     project.beginTransaction ("Delete notes");
-    for (auto& t : selection)
-        pattern().removeChild (t, project.um());
+    const auto targets = selection;
     selection.clear();
+    auto notes = pattern();
+    for (const auto& t : targets)
+        notes.removeChild (t, project.um());
     repaint();
 }
 
@@ -1363,7 +1516,7 @@ void PianoRoll::editToggleMute()
         t.setProperty (id::muted, newState, project.um());
 }
 
-void PianoRoll::insertNotes (const std::vector<NoteData>& notes, bool replaceExisting)
+void PianoRoll::insertNotes (const std::vector<NoteData>& notes, bool replaceExisting, bool appendAfterExisting)
 {
     if (! project.findChannel (channelUid).isValid())
         return;
@@ -1375,7 +1528,7 @@ void PianoRoll::insertNotes (const std::vector<NoteData>& notes, bool replaceExi
             pattern().removeChild (n, project.um());
 
     juce::int64 offset = 0;
-    if (! replaceExisting)
+    if (! replaceExisting && appendAfterExisting)
         for (auto& n : channelNotes())
             offset = juce::jmax (offset, (juce::int64) n[id::start] + (juce::int64) n[id::length]);
 
@@ -1411,6 +1564,23 @@ void PianoRoll::showChordGenerator()
         }), "Chord Generator");
 }
 
+void PianoRoll::showFollowGenerator()
+{
+    if (! project.findChannel (channelUid).isValid())
+    {
+        if (ctx.notify)
+            ctx.notify ("Select or add a channel first", true);
+        return;
+    }
+
+    if (ctx.showPanel)
+        ctx.showPanel (createFollowPanel (ctx, channelUid, [this] (const std::vector<NoteData>& notes, bool replace)
+        {
+            insertNotes (notes, replace, false);
+            scrollToTick (0.0);
+        }), "Follow Chords");
+}
+
 bool PianoRoll::keyPressed (const juce::KeyPress& key)
 {
     const auto mods = key.getModifiers();
@@ -1418,6 +1588,11 @@ bool PianoRoll::keyPressed (const juce::KeyPress& key)
 
     if (code == juce::KeyPress::escapeKey)
     {
+        if (! hasSelection() && ctx.isEditorMaximised && ctx.isEditorMaximised() && ctx.toggleEditorMaximised)
+        {
+            ctx.toggleEditorMaximised();
+            return true;
+        }
         selection.clear();
         repaint();
         return true;
@@ -1491,7 +1666,6 @@ void PianoRoll::valueTreeChildRemoved (juce::ValueTree& parent, juce::ValueTree&
 {
     if (parent.hasType (id::PATTERN) || parent.hasType (id::CHANNELS))
     {
-        pruneSelection();
         refreshToolbar();
         repaint();
     }

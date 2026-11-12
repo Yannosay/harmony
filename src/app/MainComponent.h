@@ -72,6 +72,12 @@ private:
     void saveAs (std::function<void (bool)> done = {});
     void addRecent (const juce::File& file);
     void showSettings (int page);
+    void queueError (const juce::String& message);
+    void importFlpProject (const juce::File& file);
+    void importMidiAsPattern (const juce::File& file);
+    void showImportDialog();
+    void showMidiExportDialog();
+    void setEditorMaximised (bool shouldMaximise);
     void showPanel (std::unique_ptr<juce::Component> panel, const juce::String& title);
     void startRender (engine::RenderSettings settings, bool minimise);
     void startPluginScan();
@@ -83,6 +89,7 @@ private:
     void handleTapTempo();
     void updateTitle();
     ui::EditTarget* activeEditor();
+    ui::EditTarget* selectionEditor();
     void openPatternOffset (int delta);
 
     Context& ctx;
@@ -102,6 +109,7 @@ private:
     std::unique_ptr<juce::StretchableLayoutResizerBar> browserResizer, dockResizer;
     Dock currentDock = Dock::rack;
     bool browserVisible = true;
+    bool editorMaximised = false;
 
     std::unique_ptr<juce::FileChooser> chooser;
     std::unique_ptr<engine::Renderer> renderer;
@@ -109,5 +117,6 @@ private:
     std::map<int, std::pair<double, float>> heldRecording;
     juce::Array<double> taps;
     juce::String lastTitle;
+    juce::StringArray pendingErrors;
 };
 }

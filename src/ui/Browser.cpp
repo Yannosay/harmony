@@ -1,6 +1,8 @@
 #include "ui/Browser.h"
 #include "engine/AudioEngine.h"
 #include "engine/PluginManager.h"
+#include "model/MidiIO.h"
+#include "app/Preferences.h"
 
 namespace harmony::ui
 {
@@ -176,7 +178,7 @@ namespace
                 const auto f = entry.getFile();
                 if (entry.isDirectory())
                     dirs.add (f);
-                else if (Browser::isAudioFile (f) || Browser::isSoundFont (f) || Browser::isProject (f))
+                else if (Browser::isAudioFile (f) || Browser::isSoundFont (f) || Browser::isProject (f) || midi::isMidiFile (f))
                     files.add (f);
             }
 
@@ -274,7 +276,7 @@ bool Browser::isSoundFont (const juce::File& f)
 
 bool Browser::isProject (const juce::File& f)
 {
-    return f.hasFileExtension ("hmy");
+    return f.hasFileExtension ("hmy;flp");
 }
 
 Browser::Browser (Context& c)
@@ -363,6 +365,8 @@ void Browser::refresh()
 
     auto folders = juce::StringArray::fromLines (ctx.settings.getValue ("browserFolders", defaultSampleFolders().joinIntoString ("\n")));
     folders.removeEmptyStrings();
+    if (const auto soundFonts = prefs::soundFontFolder (ctx.settings); soundFonts.isDirectory())
+        folders.addIfNotAlreadyThere (soundFonts.getFullPathName());
 
     auto* library = new SectionItem (*this, query.isEmpty() ? "Library" : "Matching files", icons::folder(), colours::success);
 
@@ -383,7 +387,7 @@ void Browser::refresh()
                     break;
 
                 const auto file = entry.getFile();
-                if ((isAudioFile (file) || isSoundFont (file) || isProject (file)) && file.getFileName().containsIgnoreCase (query))
+                if ((isAudioFile (file) || isSoundFont (file) || isProject (file) || midi::isMidiFile (file)) && file.getFileName().containsIgnoreCase (query))
                 {
                     library->addSubItem (new FileItem (*this, file));
                     ++found;

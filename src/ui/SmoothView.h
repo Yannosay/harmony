@@ -28,6 +28,7 @@ struct EditTarget
     virtual void editHumanize() {}
     virtual void editToggleMute() = 0;
     virtual void setTool (Tool) = 0;
+    virtual bool hasSelection() const = 0;
 };
 
 class TimelineCanvas : public juce::Component, public juce::SettableTooltipClient

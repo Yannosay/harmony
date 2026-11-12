@@ -24,7 +24,13 @@ your own VST, VST3 and LV2 plugins, SoundFonts and samples. It does ship eleven 
 - **Sampler**: one-shot or pitched sample playback with high-quality interpolation.
 - **Channel rack and step sequencer**, **pattern and song modes**, **playlist** with pattern
   and audio clips, **piano roll** with ghost notes, scale highlighting and scale lock.
-- **Mixer** with 24 inserts plus master, 10 effect slots each, mute, solo, pan and meters.
+- **Opens FL Studio projects** (`.flp`, FL 12.9 up to FL Studio 2026): channels, patterns, notes,
+  the playlist with pattern and audio clips, tempo, track and insert names, routing, and FL
+  effects mapped to Harmony effects. A report lists anything that needs a replacement.
+- **MIDI in and out**: drop or paste MIDI (also MIDI copied in other apps), drag notes out of
+  the piano roll as a `.mid`, or export the song or a pattern.
+- **Follow chords**: write a bassline, arpeggio or melody that follows the chords in a pattern.
+- **Mixer** with 64 inserts plus master, 10 effect slots each, mute, solo, pan and meters.
   Drag any effect from the browser onto a strip, including the master.
 - **Built-in effects**: EQ with a live response curve, filter, compressor, look-ahead limiter,
   gate, oversampled saturator, reverb, tempo-synced delay, chorus, phaser and utility.
@@ -63,6 +69,8 @@ your own VST, VST3 and LV2 plugins, SoundFonts and samples. It does ship eleven 
 | Zoom, scroll, vertical zoom | `Ctrl+wheel`, `wheel` / `Shift+wheel`, `Alt+wheel` |
 | Note velocity | `Alt+wheel` over a note or velocity stem (`Shift` for fine steps) |
 | Settings | `Ctrl+,` |
+| Maximise the piano roll, rack or mixer | `F12` |
+| Import FL Studio project or MIDI, export MIDI | `Ctrl+Shift+I`, `Ctrl+Shift+M` |
 | Time machine | `Ctrl+H` |
 
 Press `F1` in Harmony for the complete list.

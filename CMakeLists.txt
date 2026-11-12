@@ -42,6 +42,12 @@ set(HARMONY_CORE_SOURCES
     src/model/Project.cpp
     src/model/Automation.h
     src/model/Automation.cpp
+    src/model/FlpImport.h
+    src/model/FlpImport.cpp
+    src/model/MidiIO.h
+    src/model/MidiIO.cpp
+    src/model/FollowGenerator.h
+    src/model/FollowGenerator.cpp
     src/model/MusicTheory.h
     src/model/MusicTheory.cpp
     src/model/ChordGenerator.h
@@ -110,6 +116,8 @@ set(HARMONY_UI_SOURCES
     src/ui/AutomationEditor.cpp
     src/ui/PatternBar.h
     src/ui/PatternBar.cpp
+    src/ui/SystemClipboard.h
+    src/ui/SystemClipboard.cpp
     src/app/Preferences.h)
 
 set(HARMONY_DEFINITIONS
@@ -179,7 +187,8 @@ if(HARMONY_BUILD_TESTS)
         tests/UpdaterTests.cpp
         tests/PluginHostTests.cpp
         tests/DeviceTests.cpp
-        tests/EffectTests.cpp)
+        tests/EffectTests.cpp
+        tests/ImportTests.cpp)
     target_link_libraries(HarmonyTests PRIVATE HarmonyCore)
     enable_testing()
     add_test(NAME HarmonyTests COMMAND HarmonyTests)

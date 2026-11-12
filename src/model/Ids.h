@@ -78,7 +78,7 @@ namespace harmony
 {
 inline constexpr int ppq = 960;
 inline constexpr int ticksPerStep = ppq / 4;
-inline constexpr int numMixerInserts = 24;
+inline constexpr int numMixerInserts = 64;
 inline constexpr int numFxSlots = 10;
 inline constexpr int defaultTrackCount = 24;
 inline constexpr int projectFormatVersion = 1;

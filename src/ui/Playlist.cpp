@@ -68,6 +68,14 @@ Playlist::~Playlist()
     project.getState().removeListener (this);
 }
 
+bool Playlist::hasSelection() const
+{
+    for (auto& c : selection)
+        if (c.getParent().isValid())
+            return true;
+    return false;
+}
+
 void Playlist::setTool (Tool t)
 {
     tool = t;
@@ -1090,9 +1098,11 @@ void Playlist::editDelete()
         return;
 
     project.beginTransaction ("Delete clips");
-    for (auto& c : selection)
-        c.getParent().removeChild (c, project.um());
+    const auto targets = selection;
     selection.clear();
+    for (auto c : targets)
+        if (auto parent = c.getParent(); parent.isValid())
+            parent.removeChild (c, project.um());
     repaint();
 }
 
@@ -1232,7 +1242,6 @@ void Playlist::valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&)
 
 void Playlist::valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int)
 {
-    pruneSelection();
     peakCache.clear();
     repaint();
 }

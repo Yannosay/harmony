@@ -33,6 +33,8 @@ struct Context
     std::function<void (const automation::Target&, const juce::String& name)> createAutomation;
     std::function<void (juce::AudioProcessor&, int parameterIndex)> automateParameter;
     std::function<int()> effectTargetInsert;
+    std::function<void()> toggleEditorMaximised;
+    std::function<bool()> isEditorMaximised;
     std::function<bool (int insertIndex, const juce::String& pluginIdentifier, int slotIndex)> addEffect;
 };
 }

@@ -13,7 +13,7 @@ const shortcuts = [
 const stats = [
   { value: 'C++20', label: 'Native engine, no web views' },
   { value: 'Lock-free', label: 'Edit while it plays, no dropouts' },
-  { value: '24 + 1', label: 'Mixer inserts with PDC' },
+  { value: '64 + 1', label: 'Mixer inserts with PDC' },
   { value: '11', label: 'Built-in studio effects' }
 ];
 </script>

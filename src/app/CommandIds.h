@@ -11,6 +11,8 @@ enum : juce::CommandID
     saveProject,
     saveProjectAs,
     exportAudio,
+    exportMidi,
+    importFile,
     projectHistory,
     quit,
 
@@ -42,6 +44,7 @@ enum : juce::CommandID
     toggleBrowser,
     commandPalette,
     fullscreen,
+    maximiseEditor,
 
     addInstrument,
     addSoundFont,

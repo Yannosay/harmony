@@ -113,6 +113,6 @@ void InsertNode::prepare (double sampleRate, int maxBlockSize)
 {
     buffer.setSize (2, maxBlockSize, false, true, true);
     gain.prepare (sampleRate);
-    compensator.prepare ((int) (sampleRate * 2.0), maxBlockSize);
+    compensator.prepare ((int) (sampleRate * maxCompensationSeconds), maxBlockSize);
 }
 }
