@@ -22,11 +22,9 @@ async function copyHash() {
       <div class="panel card" v-reveal>
         <div class="aura" aria-hidden="true"></div>
         <img class="icon" src="/brand/harmony-icon-512.png" alt="" width="120" height="120" loading="lazy" />
-        <span class="eyebrow">Download</span>
         <h2 class="section-title">Get Harmony {{ displayVersion(release.version) }}</h2>
         <p class="section-lead">
-          Free for Windows 10 and 11 (64-bit). Installs for your user without admin rights and keeps itself up to date:
-          new versions download in the background, are verified, and install when you close Harmony.
+          For Windows 10 and 11, 64-bit. Installs for your user, no admin rights needed.
         </p>
         <div class="cta">
           <a :href="downloadUrl()" class="btn btn-primary" download>

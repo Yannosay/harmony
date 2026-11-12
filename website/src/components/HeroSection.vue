@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue';
 import AppIcon from './AppIcon.vue';
-import { displayVersion, downloadUrl, formatSize, release } from '../release.js';
+import { downloadUrl, formatSize, release } from '../release.js';
 
 const frame = ref(null);
 const tilt = { x: 0, y: 0, tx: 0, ty: 0 };
@@ -37,10 +37,9 @@ onUnmounted(() => {
 <template>
   <section id="top" class="hero">
     <div class="glow" aria-hidden="true"></div>
-    <div class="grid-bg" aria-hidden="true"></div>
+    <div class="lanes" aria-hidden="true"></div>
     <div class="container content">
       <img class="app-icon" src="/brand/harmony-icon-512.png" alt="Harmony app icon" width="88" height="88" />
-      <span class="eyebrow">Yannosay Harmony {{ displayVersion(release.version) }}</span>
       <h1>Make music at the <span class="gradient">speed of thought.</span></h1>
       <p class="lead">
         A fast, dark digital audio workstation that hosts your VST3, VST and LV2 plugins, SoundFonts and samples.
@@ -53,7 +52,7 @@ onUnmounted(() => {
         </a>
         <a href="#tour" class="btn">Take the tour</a>
       </div>
-      <p class="meta">Free · Windows 10 and 11, 64-bit · {{ formatSize(release.size) || 'Small installer' }} · Updates itself</p>
+      <p class="meta">Windows 10 and 11, 64-bit<template v-if="release.size"> · {{ formatSize(release.size) }}</template></p>
     </div>
 
     <div class="container stage">
@@ -84,13 +83,15 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-.grid-bg {
+.lanes {
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(var(--line-soft) 1px, transparent 1px), linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: radial-gradient(ellipse at 50% 20%, black, transparent 70%);
-  opacity: 0.55;
+  background-image: linear-gradient(180deg,
+    transparent 0 20px, rgba(255, 255, 255, 0.022) 20px 40px, transparent 40px 60px, rgba(255, 255, 255, 0.022) 60px 80px,
+    transparent 80px 120px, rgba(255, 255, 255, 0.022) 120px 140px, transparent 140px 160px,
+    rgba(255, 255, 255, 0.022) 160px 180px, transparent 180px 200px, rgba(255, 255, 255, 0.022) 200px 220px, transparent 220px 240px);
+  background-size: 100% 240px;
+  mask-image: radial-gradient(ellipse at 50% 25%, black, transparent 72%);
   pointer-events: none;
 }
 

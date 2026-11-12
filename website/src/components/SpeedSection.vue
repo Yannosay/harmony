@@ -14,7 +14,7 @@ const stats = [
   { value: 'C++20', label: 'Native engine, no web views' },
   { value: 'Lock-free', label: 'Edit while it plays, no dropouts' },
   { value: '24 + 1', label: 'Mixer inserts with PDC' },
-  { value: 'SHA-256', label: 'Verified automatic updates' }
+  { value: '11', label: 'Built-in studio effects' }
 ];
 </script>
 
@@ -23,7 +23,6 @@ const stats = [
     <div class="container">
       <div class="layout">
         <div>
-          <span class="eyebrow" v-reveal>Feels like home</span>
           <h2 class="section-title" v-reveal="80">Your shortcuts already work.</h2>
           <p class="section-lead" v-reveal="160">
             Familiar pattern-based workflow, function keys for every window, and scrolling with real inertia. Zoom with

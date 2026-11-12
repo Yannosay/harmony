@@ -2,29 +2,24 @@
 import AppIcon from './AppIcon.vue';
 
 const features = [
-  { icon: 'plug', title: 'Every plugin you own', text: 'VST3, VST 2.x and LV2 instruments and effects. Scanned in a separate process, so a broken plugin never crashes your session.' },
-  { icon: 'piano', title: 'A piano roll that keeps up', text: 'Ghost notes, scale highlighting and scale lock, velocity lane, slicing, live chord detection and inertial zoom.' },
-  { icon: 'wand', title: 'Chord generator', text: 'Fifteen progressions in any key, smooth voice leading, bass lines, strums and arpeggios. One click into the piano roll.' },
-  { icon: 'drum', title: 'Drum generator', text: 'Trap, drill, house, techno, drum & bass and more, mapped to your own kick, snare and hat channels by name.' },
-  { icon: 'mixer', title: 'Mixer with delay compensation', text: '24 inserts and a master, ten effect slots each. Drag effects onto any strip. Solo, mute, meters and automatic delay compensation.' },
-  { icon: 'sparkle', title: 'Eleven built-in effects', text: 'EQ with a live curve, filter, compressor, look-ahead limiter, gate, saturator, reverb, tempo-synced delay, chorus, phaser and utility.' },
-  { icon: 'automation', title: 'Automation clips', text: 'Automate volume, pan and any plugin parameter. Right-click a knob, draw points and bend curves right in the playlist.' },
-  { icon: 'wave', title: 'SoundFonts and samples', text: 'Drop an SF2 and browse its presets, or a sample for a pitched sampler. Audio clips go straight onto the playlist.' },
-  { icon: 'download', title: 'Render your way', text: 'WAV up to 32-bit float, FLAC, OGG and AIFF. Stems per insert, normalise, dither, and render in the background.' },
-  { icon: 'history', title: 'Time machine', text: 'Harmony keeps versions of your project as you work. Jump back to any of them, even after a crash.' },
-  { icon: 'bolt', title: 'Fast to learn', text: 'Every pattern in the pattern bar, SoundFont presets right on the channel, hints for every control and settings to make it yours.' },
-  { icon: 'search', title: 'Command palette', text: 'Press Ctrl+K and type. Every action in Harmony is two keystrokes away, with the shortcut shown next to it.' }
+  { icon: 'wand', title: 'Chords and drums on demand', text: 'Pick a key and a feel. Voice-led progressions with bass and rhythm, or a full groove mapped to your own kick, snare and hats by name.' },
+  { icon: 'automation', title: 'Automation where you arrange', text: 'Right-click any knob, or press Automate in a plugin window to grab the last control you touched. Drag points and bend curves right in the playlist.' },
+  { icon: 'piano', title: 'Velocity without hunting', text: 'Alt+scroll over a note to set its velocity. Stems grab from a wide area, chords move together, selections scale as one.' },
+  { icon: 'playlist', title: 'Every pattern, one click away', text: 'All patterns live in the pattern bar. Click to edit, drag straight into the song, right-click to clone or recolour.' },
+  { icon: 'scale', title: 'Ghost notes that take you there', text: 'See the other channels behind your notes, then double-click one to jump to that channel. Scale lock keeps new notes in key.' },
+  { icon: 'sparkle', title: 'Effects where you drop them', text: 'Eleven built-in effects with a live EQ curve and gain reduction meters. Drop any effect on any mixer strip, master included.' },
+  { icon: 'shield', title: 'Plugins cannot crash your session', text: 'Every plugin is scanned in its own process. A broken one gets skipped, your project stays open.' },
+  { icon: 'history', title: 'Time machine', text: 'Harmony keeps versions of your project while you work. Open any of them, even after a crash.' },
+  { icon: 'search', title: 'Everything in two keystrokes', text: 'Ctrl+K opens every command with its shortcut next to it. Type a few letters, press Enter.' }
 ];
 </script>
 
 <template>
   <section id="features" class="features">
     <div class="container">
-      <span class="eyebrow" v-reveal>Why Harmony</span>
-      <h2 class="section-title" v-reveal="80">Everything a producer needs.<br />Nothing in the way.</h2>
+      <h2 class="section-title" v-reveal="80">Small things that save hours.</h2>
       <p class="section-lead" v-reveal="160">
-        Harmony comes with no built-in instruments, on purpose, and eleven studio effects that are. It is a host built to make
-        your own plugins and sounds feel faster than ever, written in native C++ for low latency and low CPU.
+        Bring your own instruments as VST3, VST, LV2, SoundFonts or samples. Harmony takes care of the rest.
       </p>
       <div class="grid">
         <article v-for="(f, i) in features" :key="f.title" class="feature card" v-reveal="(i % 3) * 90">

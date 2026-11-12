@@ -17,7 +17,6 @@ import SiteFooter from './components/SiteFooter.vue';
     <FeatureGrid />
     <section id="create" class="create">
       <div class="container">
-        <span class="eyebrow" v-reveal>Built-in ideas, your sounds</span>
         <h2 class="section-title" v-reveal="80">Start with a progression.<br />Finish with a groove.</h2>
         <p class="section-lead" v-reveal="160">
           These are the same chord and drum generators that ship inside Harmony, running right here in your browser.

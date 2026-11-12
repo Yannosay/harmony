@@ -16,9 +16,7 @@ const current = ref(0);
 <template>
   <section id="tour" class="tour">
     <div class="container">
-      <span class="eyebrow" v-reveal>Take the tour</span>
-      <h2 class="section-title" v-reveal="80">Real screenshots. No mockups.</h2>
-      <p class="section-lead" v-reveal="160">Every image below was captured from Harmony itself.</p>
+      <h2 class="section-title" v-reveal="80">A look inside.</h2>
 
       <div class="tabs" role="tablist" v-reveal="200">
         <button v-for="(s, i) in shots" :key="s.id" role="tab" :aria-selected="current === i" class="tab" :class="{ on: current === i }" @click="current = i">
